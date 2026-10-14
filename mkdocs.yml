@@ -1,0 +1,72 @@
+site_name: shopgen
+site_description: Backfill realistic, reproducible order history into Shopify development stores.
+site_url: https://weekwright.github.io/shopgen/
+repo_url: https://github.com/weekwright/shopgen
+repo_name: weekwright/shopgen
+edit_uri: edit/main/docs/
+copyright: MIT licensed. Not affiliated with or endorsed by Shopify.
+
+# Pages sit next to docs/assets/, so the raw <picture> paths that GitHub
+# renders (assets/…) resolve on the site too.
+use_directory_urls: false
+
+nav:
+  - Home: index.md
+  - Shopify setup: shopify-setup.md
+  - Commands: commands.md
+  - Profiles: profile.md
+  - How it works: how-it-works.md
+  - Troubleshooting: troubleshooting.md
+
+exclude_docs: |
+  assets/src/
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  # The diagrams switch with the operating system's color scheme, so the
+  # site follows it too rather than offering a separate toggle.
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: green
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: green
+
+extra_css:
+  - assets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+
+plugins:
+  - search
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
