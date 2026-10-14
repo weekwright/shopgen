@@ -1,0 +1,51 @@
+/* Design tokens shared by every docs image. Rendered by scripts/render-assets.cjs. */
+:root {
+  --bg: #f7f6f2;
+  --surface: #ffffff;
+  --surface-2: #f1f0ea;
+  --ink: #15171a;
+  --ink-2: #4c5057;
+  --muted: #858a92;
+  --line: #e2e0d8;
+  --line-2: #cfccc2;
+  --brand: #12935e;
+  --brand-ink: #0b6b44;
+  --brand-soft: #dcf3e8;
+  --warm: #eb6834;
+  --warm-soft: #fde6dc;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --violet: #6250d6;
+  --violet-soft: #e7e4fa;
+  --red: #d63b3a;
+  --shadow: 0 1px 2px rgb(20 20 18 / 6%), 0 8px 24px rgb(20 20 18 / 7%);
+  --font: 'Inter', 'Inter Display', system-ui, sans-serif;
+  --display: 'Inter Display', 'Inter', system-ui, sans-serif;
+  --mono: 'DejaVu Sans Mono', ui-monospace, monospace;
+}
+:root[data-theme='dark'] {
+  --bg: #0e1012;
+  --surface: #171a1d;
+  --surface-2: #1e2226;
+  --ink: #eef0ee;
+  --ink-2: #b8bcc0;
+  --muted: #7e848a;
+  --line: #2a2f34;
+  --line-2: #3a4046;
+  --brand: #33c58a;
+  --brand-ink: #5fdca6;
+  --brand-soft: #123528;
+  --warm: #ef7a4a;
+  --warm-soft: #3a2117;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --violet: #9085e9;
+  --violet-soft: #25213f;
+  --red: #e66767;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 10px 30px rgb(0 0 0 / 35%);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: transparent; }
+body { font-family: var(--font); color: var(--ink); -webkit-font-smoothing: antialiased; }
+#canvas { background: var(--bg); position: relative; overflow: hidden; }
+code, .mono { font-family: var(--mono); }

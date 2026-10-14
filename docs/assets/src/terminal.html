@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>shopgen terminal</title>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<script src="data.js"></script>
+<style>
+  /* The terminal itself is always dark; only the page around it follows the theme. */
+  #canvas { width: 1480px; padding: 48px; }
+  .win { border-radius: 14px; overflow: hidden; background: #111417; border: 1px solid #2a2f34; box-shadow: 0 30px 80px rgb(0 0 0 / 35%); }
+  .bar { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: #1a1e22; border-bottom: 1px solid #262b30; }
+  .bar i { width: 12px; height: 12px; border-radius: 50%; background: #3a4046; display: inline-block; }
+  .bar span { flex: 1; text-align: center; color: #7e848a; font-size: 13.5px; margin-right: 52px; }
+  pre { margin: 0; padding: 22px 26px 26px; font-family: var(--mono); font-size: 14.5px; line-height: 1.62; color: #d9dcdf; white-space: pre-wrap; }
+  .p { color: #7e848a; }
+  .cmd { color: #f2f4f5; font-weight: 600; }
+  .b { font-weight: 700; color: #f4f6f7; }
+  .d { color: #7e848a; }
+  .red { color: #ff7b72; } .green { color: #56d38a; } .yellow { color: #f2c14e; } .blue { color: #6cb6ff; }
+  .magenta { color: #d2a8ff; } .cyan { color: #56c8d8; } .brand { color: #5fd38d; }
+  .gap { height: 14px; }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <div class="win">
+    <div class="bar"><i></i><i></i><i></i><span>~/acme-reporting — shopgen</span></div>
+    <pre id="out"></pre>
+  </div>
+</div>
+<script>
+  const D = window.SHOPGEN;
+  // Long outcome lists wrap awkwardly in a screenshot; keep the first lines tidy.
+  const trim = (html) => html.replace(/\n$/, '');
+  document.getElementById('out').innerHTML =
+    '<span class="p">$</span> <span class="cmd">shopgen plan -profile profile.example.json</span>\n' + trim(D.planAnsi) +
+    '\n\n<span class="p">$</span> <span class="cmd">shopgen run -profile profile.example.json -limit 8</span>\n' + trim(D.runAnsi);
+</script>
+</body>
+</html>

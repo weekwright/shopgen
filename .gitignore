@@ -31,3 +31,10 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# shopgen
+.shopgen/
+/shopgen
+/profile.json
+/dist/
+*.tmp

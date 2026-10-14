@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>shopgen order lifecycle</title>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<style>
+  #canvas { width: 1600px; height: 720px; }
+  .title { position: absolute; left: 60px; top: 44px; display: flex; align-items: center; gap: 14px; }
+  .title h1 { font-family: var(--display); font-size: 30px; letter-spacing: -0.02em; font-weight: 700; }
+  .title p { font-size: 17px; color: var(--muted); margin-left: 8px; }
+  .box { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px 20px; box-shadow: var(--shadow); }
+  .flow .box { position: relative; }
+  .box h3 { font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 10px; letter-spacing: -0.01em; }
+  .box p { font-size: 14.5px; color: var(--ink-2); line-height: 1.45; margin-top: 6px; }
+  .box p b { color: var(--ink); font-weight: 600; }
+  code { font-size: 13.5px; color: var(--ink); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .ok { border-left: 4px solid var(--brand); }
+  .retry { border-left: 4px solid var(--warm); }
+  .amb { border-left: 4px solid var(--series-1); }
+  .fail { border-left: 4px solid var(--red); }
+  .flow { position: absolute; left: 950px; top: 120px; width: 590px; display: flex; flex-direction: column; gap: 18px; }
+  .then { margin-top: 8px; font-size: 14px; color: var(--muted); }
+  .then b { color: var(--ink-2); }
+  .k { font-size: 12.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .core { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); }
+  .strip { position: absolute; left: 60px; top: 580px; width: 1480px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; padding: 16px 22px; display: grid; grid-template-columns: 210px repeat(4, 1fr); gap: 18px; align-items: start; }
+  .strip div { font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+  .strip b { color: var(--ink); display: block; font-size: 14.5px; font-weight: 600; }
+  svg.wires { position: absolute; inset: 0; pointer-events: none; }
+  .lbl { position: absolute; font-size: 13.5px; color: var(--ink-2); background: var(--bg); padding: 2px 8px; border-radius: 6px; font-weight: 550; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <div class="title"><span id="logo"></span><h1>Every order exactly once</h1><p>what <code>shopgen run</code> does for each planned order</p></div>
+
+  <div class="box" id="resume" style="left:60px; top:300px; width:290px;">
+    <div class="k">On resume</div>
+    <h3 style="margin-top:6px">Settle the in-flight order</h3>
+    <p>After a crash, <code>kill -9</code> or a second Ctrl-C mid-request, <code>state.json</code> still names the in-flight index. shopgen <b>looks it up by its sgseq tag</b> before creating anything.</p>
+  </div>
+
+  <div class="box" id="mark" style="left:470px; top:150px; width:380px;">
+    <div class="k">1 · before the request</div>
+    <h3 style="margin-top:6px">Record intent</h3>
+    <p>Wait for the pace slot (60s ÷ opm × 1.02), then save <code>inflight = i</code> to <code>state.json</code>.</p>
+  </div>
+  <div class="box core" id="create" style="left:470px; top:390px; width:380px;">
+    <div class="k">2 · the request</div>
+    <h3 style="margin-top:6px"><code style="font-size:17px">orderCreate</code></h3>
+    <p>Tagged <code>sgseq-&lt;run&gt;-&lt;i&gt;</code>, unique per planned order, with <code>sourceIdentifier shopgen:&lt;run&gt;:&lt;i&gt;</code>.</p>
+  </div>
+
+  <div class="flow" id="flow">
+    <div class="box ok" id="r-ok">
+      <h3><span class="dot" style="background:var(--brand)"></span>Created</h3>
+      <p>Append to <code>orders.jsonl</code>; run <code>orderCancel</code> if the plan says cancelled (its own 2-minute timeout, so Ctrl-C can't skip it).</p>
+      <div class="then">then <b>done++</b>, clear <code>inflight</code>, save state, next order</div>
+    </div>
+    <div class="box amb" id="r-amb">
+      <h3><span class="dot" style="background:var(--series-1)"></span>Ambiguous: it may have committed</h3>
+      <p>Connection dropped after sending, HTTP 500 / 502 / 504, or an unreadable body. <b>Never retried blindly.</b> Wait 15s for search indexing, then query <code>tag:'sgseq-&lt;run&gt;-&lt;i&gt;'</code>.</p>
+      <div class="then"><b>found</b> → treat as Created · <b>not found</b> → retry</div>
+    </div>
+    <div class="box retry" id="r-rate">
+      <h3><span class="dot" style="background:var(--warm)"></span>Rate-limit userError</h3>
+      <p>Message mentions <code>limit</code>, <code>too many</code> or <code>throttl</code>: wait 60s.</p>
+      <div class="then">then <b>retry</b>, up to 6 attempts per order</div>
+    </div>
+    <div class="box fail" id="r-fail">
+      <h3><span class="dot" style="background:var(--red)"></span>Any other userError</h3>
+      <p>Append to <code>failures.jsonl</code> as <code>field.path: message</code> and move on. If the first 3 attempts of a session all fail, stop and roll back so nothing is skipped.</p>
+    </div>
+  </div>
+
+  <div class="strip" id="strip">
+    <div><b>Under every request</b>the GraphQL client</div>
+    <div><b>429</b>wait <code>Retry-After</code>, else backoff 1s × 2ⁿ ≤ 60s</div>
+    <div><b>THROTTLED</b>wait (cost − available) ÷ restoreRate + 250ms</div>
+    <div><b>503 · 5xx on queries</b>backoff and retry, up to 10 attempts</div>
+    <div><b>401 · 403</b>stop with a hint about token scopes</div>
+  </div>
+
+  <svg class="wires" id="wires" width="1600" height="720"></svg>
+  <div class="lbl" id="l-res">only if not found</div>
+  <div class="lbl" id="l-retry" style="color:var(--warm)">retry ≤ 6×</div>
+</div>
+<script>
+  document.getElementById('logo').innerHTML = logoSVG(40);
+  // Lay out the strip under the tallest column, then size the canvas to fit.
+  {
+    const c = document.getElementById('canvas'), f = document.getElementById('flow'), st = document.getElementById('strip');
+    st.style.top = (f.offsetTop + f.offsetHeight + 44) + 'px';
+    c.style.height = (st.offsetTop + st.offsetHeight + 48) + 'px';
+    document.getElementById('wires').setAttribute('height', c.style.height);
+  }
+  const W = wires('wires');
+  const M = W.box('mark'), C = W.box('create'), R = W.box('resume');
+  const ok = W.box('r-ok'), amb = W.box('r-amb'), rate = W.box('r-rate'), fail = W.box('r-fail');
+  W.wire(`M${M.cx} ${M.b + 2} L ${M.cx} ${C.t - 4}`);
+  W.wire(W.curve(R.r + 2, R.cy, C.l - 4, C.cy), 'brand', true);
+  W.put('l-res', R.r + 8, R.cy - 46);
+  for (const [b, color] of [[ok, 'brand'], [amb, 'ink-2'], [rate, 'ink-2'], [fail, 'red']]) {
+    W.wire(W.curve(C.r + 2, C.cy, b.l - 4, b.cy), color);
+  }
+  // Retry loops return to orderCreate from below.
+  const y = C.b + 34;
+  W.wire(`M${rate.l - 2} ${rate.b - 18} C ${rate.l - 60} ${rate.b - 18}, ${C.r + 40} ${y + 20}, ${C.cx + 60} ${y + 20} L ${C.cx + 60} ${C.b + 4}`, 'warm', true);
+  W.put('l-retry', C.cx + 70, y + 26);
+</script>
+</body>
+</html>

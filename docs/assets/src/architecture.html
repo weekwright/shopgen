@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>shopgen architecture</title>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<script src="data.js"></script>
+<style>
+  #canvas { width: 1600px; height: 840px; }
+  .title { position: absolute; left: 60px; top: 44px; display: flex; align-items: center; gap: 14px; }
+  .title h1 { font-family: var(--display); font-size: 30px; letter-spacing: -0.02em; font-weight: 700; }
+  .title p { font-size: 17px; color: var(--muted); margin-left: 8px; }
+  .col { position: absolute; top: 116px; font-size: 13px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .box { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .box h3 { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+  .box h3 code { font-size: 16px; font-weight: 600; }
+  .box p { font-size: 15px; color: var(--ink-2); line-height: 1.45; margin-top: 6px; }
+  .box ul { list-style: none; margin-top: 10px; display: grid; gap: 6px; }
+  .box li { font-size: 14.5px; color: var(--ink-2); line-height: 1.35; }
+  .box li code { color: var(--ink); font-size: 13.5px; }
+  .accent { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); }
+  .accent h3 { color: var(--brand-ink); }
+  .ic { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 14px; font-weight: 700; color: #fff; background: var(--brand); flex: none; }
+  .ic.warm { background: var(--warm); }
+  .ic.ink { background: var(--ink-2); }
+  .steps { counter-reset: s; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 26px 1fr; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line); }
+  .steps li:first-child { border-top: 0; }
+  .steps li::before { content: counter(s); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12.5px; font-weight: 700; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+  .steps b { color: var(--ink); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip { font-family: var(--mono); font-size: 12.5px; padding: 4px 8px; border-radius: 6px; background: var(--brand-soft); color: var(--brand-ink); }
+  .files { margin-top: 10px; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+  .files code { color: var(--ink); font-size: 13.5px; }
+  .files span { color: var(--ink-2); }
+  svg.wires { position: absolute; inset: 0; pointer-events: none; }
+  .lbl { position: absolute; font-size: 13.5px; color: var(--ink-2); background: var(--bg); padding: 2px 8px; border-radius: 6px; font-weight: 550; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <div class="title"><span id="logo"></span><h1>How shopgen works</h1><p>plan once, create slowly, resume anywhere</p></div>
+
+  <div class="col" style="left:60px">Inputs</div>
+  <div class="col" style="left:430px">Generate</div>
+  <div class="col" style="left:820px">Execute</div>
+  <div class="col" style="left:1230px">Shopify</div>
+
+  <div class="box" id="profile" style="left:60px; top:150px; width:310px;">
+    <h3><span class="ic">{}</span><code>profile.json</code></h3>
+    <ul>
+      <li><code>seed</code> · date window · timezone</li>
+      <li>volume, growth, weekly &amp; hourly curves</li>
+      <li>spikes · noise · basket shape</li>
+      <li>shipping · tax · outcome mix</li>
+    </ul>
+  </div>
+  <div class="box" id="catalog" style="left:60px; top:378px; width:310px;">
+    <h3><span class="ic ink">▦</span>Store catalog</h3>
+    <p>Active <code>productVariants</code>, sorted by ID so page order never changes the plan.</p>
+    <p style="color:var(--muted); font-size:14px">No store? <code>plan</code> uses a built-in 40-variant catalog.</p>
+  </div>
+
+  <div class="box accent" id="gen" style="left:430px; top:150px; width:330px;">
+    <h3><span class="ic">ƒ</span><code style="font-size:13.6px">Generate(profile, catalog, now)</code></h3>
+    <p>A pure function. One seeded PCG, no I/O, no wall clock: the same inputs give the same orders every time.</p>
+  </div>
+  <div class="box" id="plan" style="left:430px; top:378px; width:330px;">
+    <h3><span class="ic ink">≡</span>Plan</h3>
+    <p id="plan-n"></p>
+    <p style="color:var(--muted); font-size:14px"><code>shopgen plan</code> prints a summary; <code>-out</code> writes JSON lines.</p>
+  </div>
+
+  <div class="box" id="run" style="left:820px; top:150px; width:350px;">
+    <h3><span class="ic warm">↻</span><code>shopgen run</code> loop</h3>
+    <ol class="steps" style="list-style:none; margin-top:8px">
+      <li><span><b>Safety gate</b>: refuse unless <code>partnerDevelopment</code></span></li>
+      <li><span><b>Pace</b> to 60s ÷ opm × 1.02 (5/min on dev stores)</span></li>
+      <li><span><b>orderCreate</b> with backdated <code>processedAt</code>, inventory bypassed, no emails</span></li>
+      <li><span><b>orderCancel</b> if the plan says cancelled</span></li>
+      <li><span><b>Save</b> <code>state.json</code> atomically, then next</span></li>
+    </ol>
+  </div>
+  <div class="box" id="state" style="left:820px; top:600px; width:350px;">
+    <h3><span class="ic ink">▤</span><code>.shopgen/&lt;run-id&gt;/</code></h3>
+    <div class="files">
+      <code>state.json</code><span>progress, <code>gen_now</code>, in-flight index</span>
+      <code>profile.json</code><span>exact bytes as given</span>
+      <code>catalog.json</code><span>sorted snapshot</span>
+      <code>orders.jsonl</code><span>one line per created order</span>
+      <code>failures.jsonl</code><span>one line per failure</span>
+    </div>
+  </div>
+
+  <div class="box" id="dev" style="left:1230px; top:150px; width:310px;">
+    <h3><span class="ic">S</span>Dev store</h3>
+    <p>Admin GraphQL API. Orders land in analytics on their historical days.</p>
+    <div class="chips"><span class="chip">shopgen</span><span class="chip">shopgen-run-&lt;id&gt;</span><span class="chip">shopgen-fulfilled</span><span class="chip">sgseq-&lt;id&gt;-&lt;n&gt;</span></div>
+    <p style="font-size:14px; color:var(--muted); margin-top:10px">Every order and customer is tagged. <code>sgseq</code> is unique per planned order.</p>
+  </div>
+  <div class="box" id="purge" style="left:1230px; top:520px; width:310px;">
+    <h3><span class="ic" style="background:var(--red)">×</span><code>shopgen purge</code></h3>
+    <p>Deletes only objects carrying a shopgen tag: one run or all of them. Never touches anything untagged.</p>
+  </div>
+
+  <svg class="wires" id="wires" width="1600" height="860"></svg>
+  <div class="lbl" id="lbl-save">after every order</div>
+  <div class="lbl" id="lbl-resume" style="color:var(--brand-ink)">resume: same plan from snapshot + gen_now</div>
+</div>
+<script>
+  document.getElementById('logo').innerHTML = logoSVG(40);
+  const n = window.SHOPGEN.total.toLocaleString('en-US');
+  document.getElementById('plan-n').innerHTML = `Every order up front, in time order: e.g. <b style="color:var(--ink)">${n}</b> orders with timestamps, customers, lines, totals, outcome, refund and archive times.`;
+
+  // Wires are anchored to the rendered boxes, so text reflow never misaligns them.
+  const box = (id) => {
+    const c = document.getElementById('canvas').getBoundingClientRect();
+    const r = document.getElementById(id).getBoundingClientRect();
+    return { l: r.left - c.left, r: r.right - c.left, t: r.top - c.top, b: r.bottom - c.top, cx: (r.left + r.right) / 2 - c.left, cy: (r.top + r.bottom) / 2 - c.top };
+  };
+  const svg = document.getElementById('wires');
+  svg.innerHTML = `<defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-2)"/></marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--brand)"/></marker>
+    <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--red)"/></marker></defs>`;
+  const curve = (x1, y1, x2, y2) => { const m = (x1 + x2) / 2; return `M${x1} ${y1} C ${m} ${y1}, ${m} ${y2}, ${x2} ${y2}`; };
+  const wire = (d, kind = 'a') => {
+    const color = { a: 'var(--ink-2)', b: 'var(--brand)', c: 'var(--red)' }[kind];
+    svg.append(h('path', { d, fill: 'none', stroke: color, 'stroke-width': 2, 'marker-end': `url(#${kind})`, ...(kind === 'b' ? { 'stroke-dasharray': '6 6' } : {}) }));
+  };
+  const P = box('profile'), C = box('catalog'), G = box('gen'), L = box('plan'), R = box('run'), S = box('state'), D = box('dev'), X = box('purge');
+  wire(curve(P.r + 2, P.cy, G.l - 4, G.cy - 12));
+  wire(curve(C.r + 2, C.cy, G.l - 4, G.cy + 12));
+  wire(`M${G.cx} ${G.b + 2} L ${G.cx} ${L.t - 4}`);
+  wire(curve(L.r + 2, L.cy, R.l - 4, L.cy));
+  wire(curve(R.r + 2, D.cy, D.l - 4, D.cy));
+  wire(`M${D.cx} ${D.b + 2} L ${D.cx} ${X.t - 4}`, 'c');
+  wire(`M${R.cx} ${R.b + 2} L ${R.cx} ${S.t - 4}`, 'b');
+  wire(`M${S.l - 2} ${S.cy} C ${L.cx} ${S.cy}, ${L.cx} ${S.cy}, ${L.cx} ${L.b + 4}`, 'b');
+  const put = (id, x, y) => Object.assign(document.getElementById(id).style, { left: x + 'px', top: y + 'px' });
+  put('lbl-save', R.cx + 12, (R.b + S.t) / 2 - 12);
+  put('lbl-resume', L.l, S.cy + 14);
+</script>
+</body>
+</html>

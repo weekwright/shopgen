@@ -1,0 +1,30 @@
+{
+  "seed": 42,
+  "start": "2026-07-15",
+  "end": "2026-10-13",
+  "timezone": "America/Chicago",
+  "orders_per_day": 60,
+  "growth": 0.25,
+  "spikes": [
+    { "date": "2026-09-07", "days": 1, "multiplier": 2.2 }
+  ],
+  "currency": "USD",
+  "tax_rate": 0.0825,
+  "customers": {
+    "pool": 3000,
+    "repeat_rate": 0.32,
+    "email_domain": "shopgen.example"
+  },
+  "items": {
+    "min": 1,
+    "max": 5,
+    "max_qty": 3,
+    "popularity_skew": 1.1
+  },
+  "shipping": [
+    { "title": "Standard", "price": 5.99, "weight": 0.75 },
+    { "title": "Express", "price": 14.99, "weight": 0.25 }
+  ],
+  "free_shipping_over": 75,
+  "archive_fulfilled": true
+}

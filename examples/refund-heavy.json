@@ -1,0 +1,20 @@
+{
+  "seed": 404,
+  "start": "2026-08-01",
+  "end": "2026-09-30",
+  "timezone": "Europe/London",
+  "orders_per_day": 25,
+  "currency": "USD",
+  "tax_rate": 0.08,
+  "customers": { "pool": 1200, "repeat_rate": 0.4 },
+  "outcomes": {
+    "fulfilled": 0.55,
+    "unfulfilled": 0.05,
+    "partially_fulfilled": 0.05,
+    "pending_payment": 0.05,
+    "refunded": 0.15,
+    "partially_refunded": 0.1,
+    "cancelled": 0.05
+  },
+  "fulfillment_lag_days": 3
+}
