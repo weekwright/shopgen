@@ -1,43 +1,12 @@
+---
+template: home.html
+hide:
+  - navigation
+---
+
 <!-- Generated from README.md by scripts/sync-docs.py. Edit the README, then run `make docs-sync`. -->
 
-# shopgen { .sg-visually-hidden }
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/header-dark.png">
-    <img alt="shopgen: realistic, reproducible order history for Shopify development stores" src="assets/header-light.png" width="100%">
-  </picture>
-</p>
-
-<p align="center">
-  <a href="https://github.com/weekwright/shopgen/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/weekwright/shopgen/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://pkg.go.dev/github.com/weekwright/shopgen"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/weekwright/shopgen.svg"></a>
-  <a href="https://github.com/weekwright/shopgen/blob/main/go.mod"><img alt="Go 1.24+" src="https://img.shields.io/badge/go-1.24%2B-00ADD8"></a>
-  <a href="https://github.com/weekwright/shopgen/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-</p>
-
-**shopgen** backfills months of realistic order history into a Shopify development store, so reports, dashboards, syncs and apps have something real to chew on. You get growth trends, weekly cycles, sales spikes, repeat customers, refunds and cancellations, all landing on the right days in Shopify analytics.
-
-```sh
-shopgen doctor               # check credentials, scopes and catalog
-shopgen plan                 # preview 90 days of orders, no writes
-shopgen run --limit 3        # smoke test: create 3 orders
-shopgen run                  # create them all, paced to Shopify's dev-store limit
-shopgen purge --run <id>     # remove everything that run created
-```
-
-<p align="center"><img alt="shopgen plan and shopgen run in a terminal" src="assets/terminal.png" width="100%"></p>
-
-## Why
-
-
-An empty dev store makes every report look the same: flat. Hand-made test orders all land "today", carry no history, and never get refunded. shopgen generates a whole history up front from a small JSON profile, then creates it through the Admin API with backdated `processedAt`, so the orders appear in analytics on their historical days.
-
-- **Realistic.** Trend, day-of-week and hour-of-day curves, spikes, lognormal noise, Zipf-distributed best sellers, preferential-attachment repeat buyers, tax, free-shipping thresholds, and seven order outcomes with backdated refunds and archiving.
-- **Reproducible.** Same profile + same catalog = the same orders, every time. A plan is a pure function of its inputs.
-- **Survives overnight runs.** Dev stores allow 5 creates per minute, so 90 days takes about 19 hours. Stop it, crash it, `kill -9` it: resume picks up with no gaps and no duplicates.
-- **Safe.** Refuses to write to anything but a development store, checks the token's scopes before writing, never emails anyone, never touches inventory, and `purge` removes only what it tagged.
-- **Easy to connect.** Works with a legacy `shpat_` token, or mints and refreshes its own tokens from a Dev Dashboard app's client ID and secret.
+# Overview { .sg-visually-hidden }
 
 ## Quick start
 

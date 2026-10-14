@@ -17,10 +17,20 @@ ROOT = Path(__file__).resolve().parent.parent
 GH = "https://github.com/weekwright/shopgen"
 HEADER = "<!-- Generated from README.md by scripts/sync-docs.py. Edit the README, then run `make docs-sync`. -->\n\n"
 
-# Sections that move to commands.md, and sections the site leaves out (the
-# table of contents duplicates the site's navigation).
+# Sections that move to commands.md, and sections the site leaves out: the
+# table of contents duplicates the site's navigation, and the landing page's
+# hero and feature cards (overrides/home.html) replace the README's header
+# image, badges, terminal screenshot and "Why" list.
 TO_COMMANDS = ["Commands", "Configuration"]
-DROP = ["Contents"]
+DROP = ["Contents", "Why"]
+
+INDEX_FRONT_MATTER = """---
+template: home.html
+hide:
+  - navigation
+---
+
+"""
 
 
 def split_sections(text):
@@ -59,10 +69,11 @@ def rewrite(md):
 
 def build():
     readme = (ROOT / "README.md").read_text()
-    preamble, sections = split_sections(readme)
-    # A visually hidden H1 stops Material adding a "Home" title above the
-    # header image, and still names the page for search and screen readers.
-    index = ["# shopgen { .sg-visually-hidden }\n\n" + rewrite(preamble).strip() + "\n"]
+    _, sections = split_sections(readme)
+    # The README preamble (header image, badges, tagline, screenshot) is
+    # replaced by the landing template's hero. A visually hidden H1 keeps
+    # Material from adding its own "Home" title and names the page body.
+    index = ["# Overview { .sg-visually-hidden }\n"]
     commands = ["# Commands and configuration\n"]
     for title, body in sections:
         if title in DROP:
@@ -72,7 +83,7 @@ def build():
             commands.append(chunk.replace("](commands.md#", "](#"))
         else:
             index.append(chunk)
-    return HEADER + "".join(index), HEADER + "".join(commands)
+    return INDEX_FRONT_MATTER + HEADER + "".join(index), HEADER + "".join(commands)
 
 
 def main():

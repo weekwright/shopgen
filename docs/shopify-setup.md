@@ -38,7 +38,8 @@ export SHOPIFY_CLIENT_SECRET=…
 
 shopgen exchanges them for an Admin API token with the [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant) (`POST https://<store>/admin/oauth/access_token`). These tokens last 24 hours; shopgen renews them five minutes before they expire, and again if Shopify ever answers `401`, so a 19-hour run never needs attention.
 
-The grant only works when the app and the store belong to the **same organization** in the Dev Dashboard. If they don't, Shopify answers `shop_not_permitted` and shopgen says so.
+> [!NOTE]
+> The grant only works when the app and the store belong to the **same organization** in the Dev Dashboard. If they don't, Shopify answers `shop_not_permitted` and shopgen says so.
 
 ### Legacy custom app
 
@@ -83,4 +84,7 @@ Plus sandbox and other paid stores aren't development stores, so shopgen refuses
 shopgen run --allow-non-dev --opm 30
 ```
 
-Paid stores have higher limits; the GraphQL client still backs off on `429` and `THROTTLED` responses. Never point shopgen at a store with real customers.
+Paid stores have higher limits; the GraphQL client still backs off on `429` and `THROTTLED` responses.
+
+> [!CAUTION]
+> Never point shopgen at a store with real customers.

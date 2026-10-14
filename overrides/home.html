@@ -1,0 +1,118 @@
+{#-
+  Landing page for the docs site. docs/index.md opts in with
+  `template: home.html`; its Markdown (generated from README.md) renders
+  below the hero, feature cards and workflow steps defined here.
+-#}
+{% extends "main.html" %}
+
+{% set install = "go install github.com/weekwright/shopgen@latest" %}
+
+{% block tabs %}
+  {{ super() }}
+  <section class="sg-hero md-typeset" aria-labelledby="sg-hero-title">
+    <div class="sg-hero__inner">
+      <div class="sg-hero__copy">
+        <span class="sg-eyebrow">Open-source CLI for Shopify dev stores</span>
+        <h1 class="sg-hero__title" id="sg-hero-title">Months of <em>realistic orders</em>, one command.</h1>
+        <p class="sg-hero__lead">
+          shopgen backfills reproducible order history into a Shopify development
+          store: growth, weekly cycles, sales spikes, repeat customers, refunds and
+          cancellations, landing on the right days in analytics. Built for testing
+          reports, dashboards, syncs and apps against data that looks real.
+        </p>
+        <div class="sg-actions">
+          <a href="{{ 'shopify-setup.html' | url }}" class="md-button md-button--primary">
+            {% include ".icons/material/rocket-launch-outline.svg" %}Get started
+          </a>
+          <a href="{{ config.repo_url }}" class="md-button">
+            {% include ".icons/fontawesome/brands/github.svg" %}View on GitHub
+          </a>
+        </div>
+        <div class="sg-install" role="group" aria-label="Install command">
+          <span class="sg-install__prompt" aria-hidden="true">$</span>
+          <code id="sg-install-cmd">{{ install }}</code>
+          <button type="button" data-clipboard-text="{{ install }}" aria-label="Copy install command">Copy</button>
+        </div>
+      </div>
+      <div class="sg-hero__shot">
+        <img src="{{ 'assets/terminal.png' | url }}" width="1480" height="870"
+             alt="shopgen plan summarizing 91 days of orders, then shopgen run creating orders at five per minute">
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block content %}
+  <section class="sg-section md-typeset" aria-labelledby="sg-features">
+    <div class="sg-section__head">
+      <span class="sg-section__kicker">Why shopgen</span>
+      <h2 class="sg-section__title" id="sg-features">A test store that behaves like a real one</h2>
+      <p class="sg-section__lead">An empty dev store makes every report look flat. Hand-made orders all land today and never get refunded. shopgen plans a whole history from a small JSON profile, then creates it safely.</p>
+    </div>
+    <div class="sg-grid">
+      <div class="sg-card">
+        <span class="sg-card__icon">{% include ".icons/material/chart-timeline-variant.svg" %}</span>
+        <h3 class="sg-card__title">Realistic shape</h3>
+        <p>Growth trends, day-of-week and hour-of-day curves, spikes, noise, best sellers and loyal repeat buyers.</p>
+      </div>
+      <div class="sg-card">
+        <span class="sg-card__icon">{% include ".icons/material/repeat.svg" %}</span>
+        <h3 class="sg-card__title">Reproducible</h3>
+        <p>Same profile and catalog, same orders, every time. A plan is a pure, seeded function of its inputs.</p>
+      </div>
+      <div class="sg-card">
+        <span class="sg-card__icon">{% include ".icons/material/restart.svg" %}</span>
+        <h3 class="sg-card__title">Survives overnight runs</h3>
+        <p>Paced to Shopify's 5-per-minute dev-store limit. Stop, crash or <code>kill -9</code> it: resume leaves no gaps and no duplicates.</p>
+      </div>
+      <div class="sg-card">
+        <span class="sg-card__icon">{% include ".icons/material/shield-check-outline.svg" %}</span>
+        <h3 class="sg-card__title">Dev-store safe</h3>
+        <p>Refuses non-dev stores, checks scopes before writing, never emails anyone and never touches inventory.</p>
+      </div>
+      <div class="sg-card">
+        <span class="sg-card__icon">{% include ".icons/material/key-chain-variant.svg" %}</span>
+        <h3 class="sg-card__title">Tokens handled</h3>
+        <p>Use a <code>shpat_</code> token, or let shopgen mint and refresh 24-hour tokens from a Dev Dashboard app.</p>
+      </div>
+      <div class="sg-card">
+        <span class="sg-card__icon">{% include ".icons/material/broom.svg" %}</span>
+        <h3 class="sg-card__title">Clean up in one command</h3>
+        <p><code>purge</code> deletes only the orders and customers shopgen tagged, for one run or all of them.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sg-section md-typeset" aria-labelledby="sg-workflow">
+    <div class="sg-section__head">
+      <span class="sg-section__kicker">Workflow</span>
+      <h2 class="sg-section__title" id="sg-workflow">Check, preview, create, clean up</h2>
+    </div>
+    <ol class="sg-steps">
+      <li>
+        <h3>Check</h3>
+        <p>Credentials, dev-store flag, scopes and catalog, without writing anything.</p>
+        <code>shopgen doctor</code>
+      </li>
+      <li>
+        <h3>Preview</h3>
+        <p>See volume, revenue, outcomes and run time for your profile.</p>
+        <code>shopgen plan</code>
+      </li>
+      <li>
+        <h3>Create</h3>
+        <p>Smoke test with a few orders, then backfill the whole history.</p>
+        <code>shopgen run --limit 3</code>
+      </li>
+      <li>
+        <h3>Clean up</h3>
+        <p>Remove everything a run created when you're done.</p>
+        <code>shopgen purge --run &lt;id&gt;</code>
+      </li>
+    </ol>
+  </section>
+
+  <div class="sg-section sg-section--body">
+    {{ super() }}
+  </div>
+{% endblock %}

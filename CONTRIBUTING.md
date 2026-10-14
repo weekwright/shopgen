@@ -50,6 +50,8 @@ The site at https://weekwright.github.io/shopgen/ is built with MkDocs (Material
 - `README.md` is the source of truth for the home page and the commands page. After editing it, run `make docs-sync`, which regenerates `docs/index.md` and `docs/commands.md`. CI fails if you forget.
 - `make docs-serve` previews the site locally and `make docs-build` builds it with broken-link checks (`pip install -r docs/requirements.txt` first).
 - Link to repository files outside `docs/` with full GitHub URLs, so links work both on GitHub and on the site.
+- The site's look comes from a small UI system: tokens in `docs/stylesheets/tokens.css`, components in `docs/stylesheets/components.css`, the landing page in `overrides/home.html` and build hooks in `hooks/sg_hooks.py`. [`docs/ui-kit.md`](docs/ui-kit.md) shows every token and component; check it in light and dark after changing styles.
+- Use GitHub alerts (`> [!TIP]`) for callouts and `<picture>` for themed images. They render on github.com, and the hooks turn them into styled callouts and toggle-aware images on the site.
 
 ## Docs images
 
