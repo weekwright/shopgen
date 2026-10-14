@@ -45,6 +45,7 @@ An empty dev store makes every report look the same: flat. Hand-made test orders
 - [Safety](#safety)
 - [Known limits](#known-limits)
 - [FAQ](#faq)
+- Docs site: https://weekwright.github.io/shopgen/
 - Deeper docs: [Shopify setup](docs/shopify-setup.md) · [Profile reference](docs/profile.md) · [How it works](docs/how-it-works.md) · [Troubleshooting](docs/troubleshooting.md)
 
 ## Quick start

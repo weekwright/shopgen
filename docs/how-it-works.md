@@ -9,7 +9,7 @@ shopgen splits the job into a **pure planning step** and a **slow, resumable exe
 
 ## Generation
 
-`Generate(profile, catalog, now) → Plan` (in [`gen.go`](../gen.go)) has no I/O. Determinism is its first rule, because resume depends on regenerating exactly the same plan:
+`Generate(profile, catalog, now) → Plan` (in [`gen.go`](https://github.com/weekwright/shopgen/blob/main/internal/shopgen/gen.go)) has no I/O. Determinism is its first rule, because resume depends on regenerating exactly the same plan:
 
 - **One seeded PRNG.** A `math/rand/v2` PCG seeded from `seed`. No global `rand`, no map iteration order, no wall clock.
 - **Sorted inputs.** The catalog is sorted by variant ID and de-duplicated before use, so the order of API pages can't change anything. Outcome keys are sorted before their weights are built.
@@ -123,9 +123,9 @@ Search indexing can lag a little behind deletes, so a second `purge` a minute la
 
 | Path | What's in it |
 |---|---|
-| [`main.go`](../main.go) | Calls `cmd.Execute()` |
-| [`cmd/`](../cmd) | The cobra commands, one file each (`root`, `plan`, `run`, `purge`, `doctor`, `version`), and viper configuration in `root.go` |
-| [`internal/shopgen/`](../internal/shopgen) | Profiles, `Generate`, the run loop, state files, purge and doctor |
-| [`internal/shopify/`](../internal/shopify) | The GraphQL client, typed operations, order input types, token sources, and helpers for store domains, admin URLs, GIDs, money and scopes |
-| [`internal/shopify/shopifytest/`](../internal/shopify/shopifytest) | An in-memory fake Admin API with fault injection, used by every store-facing test |
-| [`internal/ui/`](../internal/ui) | lipgloss styling, log lines and the pacing countdown |
+| [`main.go`](https://github.com/weekwright/shopgen/blob/main/main.go) | Calls `cmd.Execute()` |
+| [`cmd/`](https://github.com/weekwright/shopgen/tree/main/cmd) | The cobra commands, one file each (`root`, `plan`, `run`, `purge`, `doctor`, `version`), and viper configuration in `root.go` |
+| [`internal/shopgen/`](https://github.com/weekwright/shopgen/tree/main/internal/shopgen) | Profiles, `Generate`, the run loop, state files, purge and doctor |
+| [`internal/shopify/`](https://github.com/weekwright/shopgen/tree/main/internal/shopify) | The GraphQL client, typed operations, order input types, token sources, and helpers for store domains, admin URLs, GIDs, money and scopes |
+| [`internal/shopify/shopifytest/`](https://github.com/weekwright/shopgen/tree/main/internal/shopify/shopifytest) | An in-memory fake Admin API with fault injection, used by every store-facing test |
+| [`internal/ui/`](https://github.com/weekwright/shopgen/tree/main/internal/ui) | lipgloss styling, log lines and the pacing countdown |

@@ -38,3 +38,6 @@ go.work.sum
 /profile.json
 /dist/
 *.tmp
+
+# docs site build output
+/site/

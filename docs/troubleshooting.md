@@ -1,6 +1,7 @@
 # Troubleshooting
 
-**Start with `shopgen doctor`.** It checks credentials, the connection, the dev-store flag, scopes, the catalog and the profile without writing anything, and says which one is wrong.
+> [!TIP]
+> **Start with `shopgen doctor`.** It checks credentials, the connection, the dev-store flag, scopes, the catalog and the profile without writing anything, and says which one is wrong.
 
 **`HTTP 401` / `403` … check the access token and scopes**
 The token is missing, wrong or expired, or the app isn't installed on this store. With `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`, shopgen renews expired tokens itself; a static `SHOPIFY_ACCESS_TOKEN` can't be renewed, so export a fresh one and `shopgen run --resume <id>`. Nothing is lost. See [Shopify setup](shopify-setup.md).

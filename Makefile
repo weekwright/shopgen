@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/weekwright/shopgen/cmd.Version=$(VERSION)
 
-.PHONY: build test check fmt assets demo clean
+.PHONY: build test check fmt assets demo clean docs-sync docs-serve docs-build
 
 build: ## Build ./shopgen
 	go build -trimpath -ldflags "$(LDFLAGS)" -o shopgen .
@@ -23,5 +23,14 @@ demo: ## Re-record the run shown in the README screenshot
 assets: ## Re-render docs/assets/*.png (needs Node + Playwright)
 	node scripts/render-assets.cjs
 
+docs-sync: ## Regenerate docs/index.md and docs/commands.md from README.md
+	python3 scripts/sync-docs.py
+
+docs-serve: docs-sync ## Preview the docs site at http://127.0.0.1:8000 (pip install -r docs/requirements.txt)
+	mkdocs serve
+
+docs-build: docs-sync ## Build the docs site into ./site, failing on broken links
+	mkdocs build --strict
+
 clean:
-	rm -rf shopgen dist
+	rm -rf shopgen dist site

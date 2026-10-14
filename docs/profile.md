@@ -95,13 +95,13 @@ Rules applied after the draw:
 
 **Black Friday / Cyber Monday.** `"spikes": [{ "date": "2025-11-28", "days": 4, "multiplier": 3 }]`. Overlapping spikes multiply.
 
-**A store with a refund problem.** Raise `refunded` and `partially_refunded` in `outcomes`. See [`examples/refund-heavy.json`](../examples/refund-heavy.json).
+**A store with a refund problem.** Raise `refunded` and `partially_refunded` in `outcomes`. See [`examples/refund-heavy.json`](https://github.com/weekwright/shopgen/blob/main/examples/refund-heavy.json).
 
 **Bigger baskets.** `"items": { "min": 2, "max": 8, "max_qty": 5 }`.
 
 **Night-owl store.** Supply your own 24-value `hourly` curve; only the relative sizes matter.
 
-**Quick smoke profile.** Three days at 8 orders a day is about 24 orders, roughly 5 minutes at 5/min. See [`examples/smoke.json`](../examples/smoke.json).
+**Quick smoke profile.** Three days at 8 orders a day is about 24 orders, roughly 5 minutes at 5/min. See [`examples/smoke.json`](https://github.com/weekwright/shopgen/blob/main/examples/smoke.json).
 
 ## Reproducibility
 

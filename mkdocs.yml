@@ -1,0 +1,105 @@
+site_name: shopgen
+site_description: Backfill realistic, reproducible order history into Shopify development stores.
+site_url: https://weekwright.github.io/shopgen/
+repo_url: https://github.com/weekwright/shopgen
+repo_name: weekwright/shopgen
+edit_uri: edit/main/docs/
+copyright: MIT licensed · Not affiliated with or endorsed by Shopify
+
+# Pages sit next to docs/assets/, so the raw <picture> paths that GitHub
+# renders (assets/…) resolve on the site too.
+use_directory_urls: false
+
+nav:
+  - Home: index.md
+  - Guide:
+      - Shopify setup: shopify-setup.md
+      - Commands: commands.md
+      - Profiles: profile.md
+      - Troubleshooting: troubleshooting.md
+  - Internals:
+      - How it works: how-it-works.md
+  - Contributing:
+      - Docs UI kit: ui-kit.md
+
+exclude_docs: |
+  assets/src/
+  requirements.txt
+
+theme:
+  name: material
+  custom_dir: overrides
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil-outline
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+  # System preference by default, with a toggle. Diagrams follow the toggle
+  # too (see hooks/sg_hooks.py). Colors come from docs/stylesheets/tokens.css.
+  palette:
+    - media: "(prefers-color-scheme)"
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to system preference
+
+extra_css:
+  - stylesheets/tokens.css
+  - stylesheets/components.css
+
+hooks:
+  - hooks/sg_hooks.py
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: "#"
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn

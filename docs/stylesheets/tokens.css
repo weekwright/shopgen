@@ -1,0 +1,184 @@
+/*
+ * shopgen docs UI system: design tokens.
+ *
+ * Every color, radius, shadow and spacing value used by the site lives here,
+ * once for light and once for dark. Components (components.css) only read
+ * --sg-* tokens; the second half of this file maps the tokens onto Material
+ * for MkDocs' own variables so stock elements (header, nav, search, code,
+ * tables, admonitions) follow the same system.
+ *
+ * The values match the PNG diagrams in docs/assets (rendered from
+ * docs/assets/src/theme.css), so text and images read as one design.
+ */
+
+:root,
+[data-md-color-scheme="default"] {
+  color-scheme: light;
+
+  /* Surfaces */
+  --sg-bg: #f7f6f2;
+  --sg-surface: #ffffff;
+  --sg-surface-2: #f1f0ea;
+  --sg-surface-3: #e9e7df;
+  --sg-overlay: rgb(247 246 242 / 82%);
+
+  /* Ink */
+  --sg-ink: #15171a;
+  --sg-ink-2: #4c5057;
+  --sg-muted: #6b7079;
+  --sg-line: #e2e0d8;
+  --sg-line-2: #cfccc2;
+
+  /* Brand */
+  --sg-brand: #12935e;
+  --sg-brand-strong: #0b6b44;
+  --sg-brand-ink: #0b6b44;
+  --sg-brand-soft: #dcf3e8;
+  --sg-on-brand: #ffffff;
+
+  /* Semantic */
+  --sg-info: #1f63b8;
+  --sg-info-soft: #e1ecfa;
+  --sg-warn: #8a5a00;
+  --sg-warn-soft: #fbefd2;
+  --sg-danger: #c62f2e;
+  --sg-danger-soft: #fbe4e3;
+  --sg-violet: #5b49c9;
+  --sg-violet-soft: #e9e6fa;
+  --sg-cyan: #08707f;
+  --sg-cyan-soft: #ddf1f3;
+
+  /* Terminal (always dark) */
+  --sg-term-bg: #111417;
+  --sg-term-bar: #1a1e22;
+  --sg-term-ink: #d9dcdf;
+  --sg-term-line: #2a2f34;
+
+  /* Depth */
+  --sg-shadow-1: 0 1px 2px rgb(20 20 18 / 6%);
+  --sg-shadow-2: 0 1px 2px rgb(20 20 18 / 6%), 0 8px 24px rgb(20 20 18 / 7%);
+  --sg-shadow-3: 0 2px 4px rgb(20 20 18 / 6%), 0 24px 60px rgb(20 20 18 / 14%);
+  --sg-glow: rgb(18 147 94 / 16%);
+}
+
+[data-md-color-scheme="slate"] {
+  color-scheme: dark;
+
+  --sg-bg: #0e1012;
+  --sg-surface: #15181b;
+  --sg-surface-2: #1c2024;
+  --sg-surface-3: #252a2f;
+  --sg-overlay: rgb(14 16 18 / 80%);
+
+  --sg-ink: #eef0ee;
+  --sg-ink-2: #b8bcc0;
+  --sg-muted: #868c92;
+  --sg-line: #262b30;
+  --sg-line-2: #353b41;
+
+  --sg-brand: #33c58a;
+  --sg-brand-strong: #5fdca6;
+  --sg-brand-ink: #5fdca6;
+  --sg-brand-soft: #12352a;
+  --sg-on-brand: #06140d;
+
+  --sg-info: #6cb6ff;
+  --sg-info-soft: #14263b;
+  --sg-warn: #f2c14e;
+  --sg-warn-soft: #33270f;
+  --sg-danger: #ff7b72;
+  --sg-danger-soft: #3a1a19;
+  --sg-violet: #b3a7ff;
+  --sg-violet-soft: #241f3f;
+  --sg-cyan: #56c8d8;
+  --sg-cyan-soft: #10292d;
+
+  --sg-shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --sg-shadow-2: 0 1px 2px rgb(0 0 0 / 40%), 0 10px 30px rgb(0 0 0 / 35%);
+  --sg-shadow-3: 0 2px 4px rgb(0 0 0 / 40%), 0 30px 70px rgb(0 0 0 / 50%);
+  --sg-glow: rgb(51 197 138 / 14%);
+}
+
+:root {
+  /* Type */
+  --sg-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sg-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --sg-text-xs: 0.75rem;
+  --sg-text-sm: 0.8125rem;
+  --sg-text-base: 0.875rem;
+  --sg-text-md: 1rem;
+  --sg-text-lg: 1.125rem;
+  --sg-text-xl: 1.5rem;
+  --sg-text-2xl: 2rem;
+  --sg-text-hero: clamp(2.25rem, 1.4rem + 3.2vw, 3.6rem);
+  --sg-tracking-tight: -0.025em;
+
+  /* Shape and space */
+  --sg-radius-sm: 6px;
+  --sg-radius: 10px;
+  --sg-radius-lg: 16px;
+  --sg-radius-pill: 999px;
+  --sg-space-1: 0.25rem;
+  --sg-space-2: 0.5rem;
+  --sg-space-3: 0.75rem;
+  --sg-space-4: 1rem;
+  --sg-space-5: 1.5rem;
+  --sg-space-6: 2rem;
+  --sg-space-7: 3rem;
+  --sg-space-8: 4.5rem;
+  --sg-content-max: 72rem;
+
+  --sg-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ---- Map tokens onto Material for MkDocs ------------------------------- */
+
+:root,
+[data-md-color-scheme="default"],
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: var(--sg-bg);
+  --md-default-fg-color: var(--sg-ink);
+  --md-default-fg-color--light: var(--sg-ink-2);
+  --md-default-fg-color--lighter: var(--sg-muted);
+  --md-default-fg-color--lightest: var(--sg-line);
+
+  --md-primary-fg-color: var(--sg-brand);
+  --md-primary-fg-color--light: var(--sg-brand-strong);
+  --md-primary-fg-color--dark: var(--sg-brand-strong);
+  --md-primary-bg-color: var(--sg-on-brand);
+  --md-primary-bg-color--light: var(--sg-on-brand);
+
+  --md-accent-fg-color: var(--sg-brand-strong);
+  --md-accent-fg-color--transparent: var(--sg-brand-soft);
+
+  --md-typeset-color: var(--sg-ink);
+  --md-typeset-a-color: var(--sg-brand-ink);
+  --md-typeset-mark-color: var(--sg-warn-soft);
+  --md-typeset-table-color: var(--sg-line);
+  --md-typeset-table-color--light: var(--sg-surface-2);
+
+  --md-code-bg-color: var(--sg-surface-2);
+  --md-code-fg-color: var(--sg-ink);
+  --md-code-hl-color: var(--sg-brand-soft);
+  --md-code-hl-keyword-color: var(--sg-violet);
+  --md-code-hl-string-color: var(--sg-brand-ink);
+  --md-code-hl-number-color: var(--sg-danger);
+  --md-code-hl-comment-color: var(--sg-muted);
+  --md-code-hl-function-color: var(--sg-info);
+  --md-code-hl-constant-color: var(--sg-cyan);
+  --md-code-hl-name-color: var(--sg-ink);
+  --md-code-hl-operator-color: var(--sg-ink-2);
+  --md-code-hl-punctuation-color: var(--sg-ink-2);
+  --md-code-hl-variable-color: var(--sg-ink);
+  --md-code-hl-generic-color: var(--sg-ink-2);
+
+  --md-footer-bg-color: var(--sg-surface);
+  --md-footer-bg-color--dark: var(--sg-bg);
+  --md-footer-fg-color: var(--sg-ink);
+  --md-footer-fg-color--light: var(--sg-ink-2);
+  --md-footer-fg-color--lighter: var(--sg-muted);
+
+  --md-shadow-z1: var(--sg-shadow-1);
+  --md-shadow-z2: var(--sg-shadow-2);
+  --md-shadow-z3: var(--sg-shadow-3);
+}
