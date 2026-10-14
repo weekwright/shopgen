@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>shopgen daily volume</title>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<script src="data.js"></script>
+<style>
+  #canvas { width: 1600px; height: 720px; }
+  .title { position: absolute; left: 60px; top: 44px; }
+  .title h1 { font-family: var(--display); font-size: 30px; letter-spacing: -0.02em; font-weight: 700; }
+  .title p { font-size: 17px; color: var(--muted); margin-top: 6px; }
+  .legend { position: absolute; right: 60px; top: 56px; display: flex; gap: 26px; font-size: 15px; color: var(--ink-2); }
+  .legend span { display: flex; align-items: center; gap: 9px; }
+  .sw-bar { width: 12px; height: 16px; border-radius: 3px 3px 0 0; background: var(--series-1); }
+  .sw-line { width: 22px; height: 2px; background: var(--series-2); border-radius: 2px; }
+  svg { position: absolute; left: 0; top: 0; }
+  .axis { font-size: 13.5px; fill: var(--muted); font-family: var(--font); font-variant-numeric: tabular-nums; }
+  .note { font-size: 14.5px; fill: var(--ink-2); font-family: var(--font); font-weight: 550; }
+  .note-b { font-size: 14.5px; fill: var(--ink); font-family: var(--font); font-weight: 650; }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <div class="title"><h1>One profile, 91 days of orders</h1><p id="sub"></p></div>
+  <div class="legend"><span><i class="sw-bar"></i>Generated orders per day</span><span><i class="sw-line"></i>Expected mean (trend × weekday × spike)</span></div>
+  <svg id="chart" width="1600" height="720"></svg>
+</div>
+<script>
+  const D = window.SHOPGEN;
+  document.getElementById('sub').textContent =
+    `profile.example.json · ${D.total.toLocaleString('en-US')} orders · ${D.profile.timezone} · seed ${D.profile.seed} · lognormal noise σ = 0.15`;
+  const svg = document.getElementById('chart');
+  const L = 96, R = 1540, T = 150, B = 640;
+  const n = D.counts.length;
+  const maxV = Math.ceil(Math.max(...D.counts, ...D.expected) / 20) * 20 + 20;
+  const x = (i) => L + (i + 0.5) * (R - L) / n;
+  const y = (v) => B - (v / maxV) * (B - T);
+  const bw = (R - L) / n - 2;
+
+  // Recessive grid and y-axis labels.
+  for (let v = 0; v <= maxV; v += 20) {
+    svg.append(h('line', { x1: L, x2: R, y1: y(v), y2: y(v), stroke: 'var(--line)', 'stroke-width': v === 0 ? 1.5 : 1 }));
+    const t = h('text', { x: L - 14, y: y(v) + 4.5, 'text-anchor': 'end', class: 'axis' }); t.textContent = v; svg.append(t);
+  }
+  // Month ticks.
+  D.days.forEach((d, i) => {
+    if (d.endsWith('-01') || i === 0) {
+      const t = h('text', { x: x(i) - bw / 2, y: B + 26, class: 'axis' });
+      t.textContent = new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      svg.append(t);
+      svg.append(h('line', { x1: x(i) - bw / 2 - 1, x2: x(i) - bw / 2 - 1, y1: B, y2: B + 8, stroke: 'var(--line-2)' }));
+    }
+  });
+
+  // Bars: rounded data end, flat at the baseline.
+  D.counts.forEach((c, i) => {
+    const top = y(c), r = Math.min(3, bw / 2), x0 = x(i) - bw / 2;
+    svg.append(h('path', {
+      d: `M${x0} ${B} L${x0} ${top + r} Q${x0} ${top} ${x0 + r} ${top} L${x0 + bw - r} ${top} Q${x0 + bw} ${top} ${x0 + bw} ${top + r} L${x0 + bw} ${B} Z`,
+      fill: 'var(--series-1)', 'fill-opacity': 0.85,
+    }));
+  });
+
+  // Expected mean line, with a surface halo so it reads over the bars.
+  const pts = D.expected.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+  svg.append(h('polyline', { points: pts, fill: 'none', stroke: 'var(--bg)', 'stroke-width': 5, 'stroke-linejoin': 'round' }));
+  svg.append(h('polyline', { points: pts, fill: 'none', stroke: 'var(--series-2)', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+
+  // Annotations.
+  const note = (tx, ty, lines, anchor = 'start') => {
+    lines.forEach((s, k) => {
+      const t = h('text', { x: tx, y: ty + k * 20, class: k === 0 ? 'note-b' : 'note', 'text-anchor': anchor });
+      t.textContent = s; svg.append(t);
+    });
+  };
+  const spike = D.days.indexOf(D.profile.spikes[0].date);
+  const sTop = Math.min(y(D.counts[spike]), y(D.expected[spike]));
+  svg.append(h('line', { x1: x(spike), x2: x(spike), y1: sTop - 8, y2: T - 2, stroke: 'var(--ink-2)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
+  note(x(spike) + 10, T + 6, [`${D.profile.spikes[0].date} · ${D.profile.spikes[0].multiplier}× spike`, `expected ${Math.round(D.expected[spike])}, generated ${D.counts[spike]}`]);
+
+  note(L + 16, T + 6, ['+25% growth, mean preserved', 'weekends run hotter (Sat 1.1×, Sun 0.9×)']);
+
+</script>
+</body>
+</html>

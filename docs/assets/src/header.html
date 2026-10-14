@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>shopgen header</title>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<script src="data.js"></script>
+<style>
+  #canvas { width: 1280px; height: 560px; }
+  .dots { position: absolute; inset: 0; background-image: radial-gradient(var(--line-2) 1px, transparent 1.2px); background-size: 22px 22px; opacity: .55;
+          -webkit-mask-image: linear-gradient(100deg, transparent 0%, #000 45%, #000 100%); }
+  .glow { position: absolute; width: 760px; height: 760px; right: -200px; top: -260px; border-radius: 50%;
+          background: radial-gradient(closest-side, color-mix(in srgb, var(--brand) 22%, transparent), transparent); }
+  .left { position: absolute; left: 80px; top: 112px; width: 590px; }
+  .brandrow { display: flex; align-items: center; gap: 22px; }
+  .word { font-family: var(--display); font-weight: 700; font-size: 104px; letter-spacing: -0.045em; line-height: 1; }
+  .tag { margin-top: 30px; font-size: 29px; line-height: 1.35; color: var(--ink-2); letter-spacing: -0.01em; }
+  .tag b { color: var(--ink); font-weight: 600; }
+  .pills { display: flex; flex-wrap: nowrap; gap: 8px; margin-top: 34px; }
+  .pill { font-size: 15px; font-weight: 550; padding: 7px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); display: inline-block; }
+
+  .card { position: absolute; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); }
+  .back { left: 718px; top: 64px; width: 500px; height: 420px; transform: rotate(3deg); opacity: .6; }
+  .main { left: 690px; top: 76px; width: 510px; padding: 24px 26px 18px; }
+  .k { font-size: 14px; color: var(--muted); font-weight: 550; letter-spacing: .02em; text-transform: uppercase; }
+  .big { font-family: var(--display); font-size: 40px; font-weight: 700; letter-spacing: -0.03em; margin-top: 4px; }
+  .big small { font-size: 17px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-left: 8px; }
+  svg.bars { display: block; margin-top: 12px; }
+  .rows { margin-top: 10px; border-top: 1px solid var(--line); }
+  .row { display: grid; grid-template-columns: 72px 1fr 120px 82px; align-items: center; height: 40px; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .row:last-child { border-bottom: 0; }
+  .row .n { font-weight: 650; }
+  .row .w { color: var(--muted); }
+  .row .t { text-align: right; font-variant-numeric: tabular-nums; font-weight: 550; }
+  .st { justify-self: start; font-size: 12.5px; font-weight: 600; padding: 3px 9px; border-radius: 6px; }
+  .st.fulfilled { background: var(--brand-soft); color: var(--brand-ink); }
+  .st.unfulfilled, .st.partially_fulfilled { background: color-mix(in srgb, var(--series-1) 16%, transparent); color: var(--series-1); }
+  .st.pending_payment { background: color-mix(in srgb, #eda100 22%, transparent); color: color-mix(in srgb, #b07800 80%, var(--ink)); }
+  .st.refunded, .st.partially_refunded { background: var(--violet-soft); color: var(--violet); }
+  .st.cancelled { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <div class="dots"></div>
+  <div class="glow"></div>
+  <div class="left">
+    <div class="brandrow"><span id="logo"></span><span class="word">shopgen</span></div>
+    <p class="tag"><b>Realistic, reproducible order history</b> for Shopify development stores. Months of data, one command.</p>
+    <div class="pills">
+      <span class="pill"><i></i>Deterministic</span>
+      <span class="pill"><i></i>Resumable</span>
+      <span class="pill"><i></i>Dev-store safe</span>
+      <span class="pill"><i></i>Single binary</span>
+    </div>
+  </div>
+  <div class="card back"></div>
+  <div class="card main">
+    <div class="k">Orders · Jul 15 – Oct 13</div>
+    <div class="big" id="big"></div>
+    <svg class="bars" id="bars" width="458" height="132"></svg>
+    <div class="rows" id="rows"></div>
+  </div>
+</div>
+<script>
+  const D = window.SHOPGEN;
+  // ?h=640 renders the 2:1 social-preview variant: same content, centered.
+  const socialH = +new URLSearchParams(location.search).get('h');
+  if (socialH) {
+    const c = document.getElementById('canvas');
+    c.style.height = socialH + 'px';
+    for (const el of c.querySelectorAll('.left, .card')) el.style.marginTop = (socialH - 560) / 2 + 'px';
+  }
+  document.getElementById('logo').innerHTML = logoSVG(92);
+  const gross = 0;
+  document.getElementById('big').innerHTML = D.total.toLocaleString('en-US') + '<small>orders · 91 days</small>';
+
+  const svg = document.getElementById('bars');
+  const W = 458, H = 132, n = D.counts.length, gap = 1.6;
+  const bw = (W - gap * (n - 1)) / n;
+  const max = Math.max(...D.counts);
+  const css = getComputedStyle(document.documentElement);
+  D.counts.forEach((c, i) => {
+    const bh = Math.max(2, (c / max) * (H - 6));
+    const spike = D.days[i] === '2026-09-07';
+    svg.append(h('rect', { x: i * (bw + gap), y: H - bh, width: bw, height: bh, rx: 1.5,
+      fill: spike ? 'var(--warm)' : 'var(--brand)', 'fill-opacity': spike ? 1 : 0.35 + 0.65 * (i / n) }));
+  });
+
+  const rows = document.getElementById('rows');
+  for (const o of D.sample) {
+    rows.insertAdjacentHTML('beforeend', `<div class="row"><span class="n">${o.name}</span><span class="w">${o.when}</span>
+      <span class="st ${o.outcome}">${o.outcome.replace('_', ' ')}</span><span class="t">$${o.total}</span></div>`);
+  }
+</script>
+</body>
+</html>

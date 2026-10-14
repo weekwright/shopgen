@@ -1,0 +1,10 @@
+{
+  "seed": 1,
+  "start": "2026-10-01",
+  "end": "2026-10-03",
+  "timezone": "America/New_York",
+  "orders_per_day": 8,
+  "noise": 0,
+  "tax_rate": 0.06,
+  "customers": { "pool": 20, "repeat_rate": 0.25 }
+}

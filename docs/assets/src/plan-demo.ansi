@@ -1,0 +1,8 @@
+[1mwindow      [0m2026-07-15 → 2026-10-13 [38;5;102m(91 days, America/Chicago)[0m
+[1morders      [0m[38;5;78m5593[0m  [38;5;102m(avg 61/day, busiest 2026-09-07 with 92)[0m
+[1mcustomers   [0m3000 distinct
+[1mrevenue     [0m587649.34 USD gross, 34487.52 refunded, AOV 105.07
+[1moutcomes    [0m[38;5;209mcancelled[0m 123 (2.2%), [38;5;78mfulfilled[0m 4549 (81.3%), [38;5;80mpartially_fulfilled[0m 103 (1.8%), [38;5;183mpartially_refunded[0m 228 (4.1%), [38;5;215mpending_payment[0m 107 (1.9%), [38;5;183mrefunded[0m 214 (3.8%), [38;5;80munfulfilled[0m 269 (4.8%)
+[1mduration    [0m[1m19h00m[0m at 5.0 orders/min
+[1mcatalog     [0m40 variants [38;5;102m(built-in synthetic catalog)[0m
+[1mvolume      [0m[38;5;78m▅▆▄▄▅▄▅▄▅▅▅▅▅▄▄▅▄▅▅▅▆▅▄▅▆▆▅▄▅▅▆▆▄▅▅█▆▅▅▄▅▆▅▆▅▆▆▆▅▅▆▅▆▆▆▅▅▆▆▅[0m
