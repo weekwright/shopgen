@@ -1,4 +1,4 @@
-package main
+package shopgen
 
 import (
 	"encoding/json"
@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weekwright/shopgen/internal/shopify"
+	"github.com/weekwright/shopgen/internal/ui"
 )
 
 // genNow is the fixed reference time for generator tests: 8 pm Chicago on
@@ -307,7 +310,7 @@ func TestBuildOrderMapping(t *testing.T) {
 			if len(in.Transactions) != 2 || in.Transactions[1].Kind != "REFUND" {
 				t.Fatalf("%s: want sale + refund, got %+v", o.Outcome, in.Transactions)
 			}
-			if in.Transactions[1].AmountSet.ShopMoney.Amount != formatAmount(o.RefundCents) {
+			if in.Transactions[1].AmountSet.ShopMoney.Amount != shopify.FormatAmount(o.RefundCents) {
 				t.Fatalf("%s: refund amount %s", o.Outcome, in.Transactions[1].AmountSet.ShopMoney.Amount)
 			}
 		default:
@@ -315,7 +318,7 @@ func TestBuildOrderMapping(t *testing.T) {
 				t.Fatalf("%s: want 1 sale, got %+v", o.Outcome, in.Transactions)
 			}
 		}
-		if len(in.Tags) != 4 || in.Tags[3] != seqTag("20261014-abcdef", o.Index) {
+		if len(in.Tags) != 4 || in.Tags[3] != SeqTag("20261014-abcdef", o.Index) {
 			t.Fatalf("tags %v", in.Tags)
 		}
 		if in.Tags[2] != "shopgen-"+strings.ReplaceAll(o.Outcome, "_", "-") {
@@ -347,7 +350,7 @@ func TestSummaryFormat(t *testing.T) {
 	p := testProfile(t, "")
 	plan := mustGenerate(t, p, SyntheticCatalog(), genNow)
 	var sb strings.Builder
-	Summarize(p, plan, 5).Write(&sb, Style{})
+	Summarize(p, plan, 5).Write(&sb, ui.Style{})
 	out := sb.String()
 	for _, prefix := range []string{"window      2026-08-01 → 2026-10-13 (74 days, America/Chicago)", "orders      ", "customers   ", "revenue     ", "outcomes    ", "duration    "} {
 		if !strings.Contains(out, "\n"+prefix) && !strings.HasPrefix(out, prefix) {
@@ -361,7 +364,7 @@ func TestSummaryFormat(t *testing.T) {
 
 func TestDurationMatchesSpecExample(t *testing.T) {
 	s := Summary{Orders: 5670, OPM: 5}
-	if got := formatDuration(s.Duration()); got != "19h16m" {
+	if got := ui.FormatDuration(s.Duration()); got != "19h16m" {
 		t.Fatalf("duration %s, want 19h16m", got)
 	}
 }

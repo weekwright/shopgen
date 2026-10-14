@@ -1,4 +1,4 @@
-package main
+package shopify
 
 import (
 	"context"
@@ -12,7 +12,7 @@ const (
 	qVariants = `query Variants($cursor: String) {
   productVariants(first: 250, after: $cursor, query: "product_status:active") {
     nodes { id title price product { title } }
-    pageInfo { hasNextPage endCursor }
+    PageInfo { hasNextPage endCursor }
   }
 }`
 
@@ -33,7 +33,7 @@ const (
 	qOrdersByTag = `query OrdersByTag($query: String!, $cursor: String) {
   orders(first: 50, after: $cursor, query: $query) {
     nodes { id name cancelledAt tags }
-    pageInfo { hasNextPage endCursor }
+    PageInfo { hasNextPage endCursor }
   }
 }`
 
@@ -47,7 +47,7 @@ const (
 	qCustomersByTag = `query CustomersByTag($query: String!, $cursor: String) {
   customers(first: 50, after: $cursor, query: $query) {
     nodes { id email }
-    pageInfo { hasNextPage endCursor }
+    PageInfo { hasNextPage endCursor }
   }
 }`
 
@@ -74,7 +74,8 @@ type UserError struct {
 	Code    string   `json:"code,omitempty"`
 }
 
-func formatUserErrors(errs []UserError) string {
+// FormatUserErrors renders userErrors as "field.path: message; …".
+func FormatUserErrors(errs []UserError) string {
 	parts := make([]string, len(errs))
 	for i, e := range errs {
 		if len(e.Field) > 0 {
@@ -86,7 +87,8 @@ func formatUserErrors(errs []UserError) string {
 	return strings.Join(parts, "; ")
 }
 
-type pageInfo struct {
+// PageInfo is a connection's cursor state.
+type PageInfo struct {
 	HasNextPage bool    `json:"hasNextPage"`
 	EndCursor   *string `json:"endCursor"`
 }
@@ -110,12 +112,30 @@ func (c *Client) Shop(ctx context.Context) (ShopInfo, error) {
 	return ShopInfo{Name: s.Name, Domain: s.MyshopifyDomain, Currency: s.CurrencyCode, PartnerDevelopment: s.Plan.PartnerDevelopment}, nil
 }
 
-// FetchCatalog pages through active variants and returns them sorted.
-func (c *Client) FetchCatalog(ctx context.Context) ([]Variant, error) {
-	var cat []Variant
+// ProductVariant is an active variant with a positive price.
+type ProductVariant struct {
+	ID           string
+	Title        string
+	ProductTitle string
+	PriceCents   int64
+}
+
+// DisplayTitle is the product title plus " - variant" unless the variant is
+// Shopify's placeholder "Default Title".
+func (v ProductVariant) DisplayTitle() string {
+	if v.Title == "" || v.Title == "Default Title" {
+		return v.ProductTitle
+	}
+	return v.ProductTitle + " - " + v.Title
+}
+
+// ActiveVariants pages through every variant of an active product priced
+// above zero, 250 at a time.
+func (c *Client) ActiveVariants(ctx context.Context) ([]ProductVariant, error) {
+	var out []ProductVariant
 	var cursor *string
 	for {
-		var out struct {
+		var page struct {
 			ProductVariants struct {
 				Nodes []struct {
 					ID      string `json:"id"`
@@ -125,29 +145,25 @@ func (c *Client) FetchCatalog(ctx context.Context) ([]Variant, error) {
 						Title string `json:"title"`
 					} `json:"product"`
 				} `json:"nodes"`
-				PageInfo pageInfo `json:"pageInfo"`
+				PageInfo PageInfo `json:"pageInfo"`
 			} `json:"productVariants"`
 		}
-		if err := c.Do(ctx, qVariants, map[string]any{"cursor": cursor}, &out); err != nil {
+		if err := c.Do(ctx, qVariants, map[string]any{"cursor": cursor}, &page); err != nil {
 			return nil, fmt.Errorf("fetch catalog: %w", err)
 		}
-		for _, n := range out.ProductVariants.Nodes {
-			cents, err := parseMoney(n.Price)
+		for _, n := range page.ProductVariants.Nodes {
+			cents, err := ParseMoney(n.Price)
 			if err != nil || cents <= 0 {
 				continue
 			}
-			cat = append(cat, Variant{ID: n.ID, Title: displayTitle(n.Product.Title, n.Title), PriceCents: cents})
+			out = append(out, ProductVariant{ID: n.ID, Title: n.Title, ProductTitle: n.Product.Title, PriceCents: cents})
 		}
-		pi := out.ProductVariants.PageInfo
+		pi := page.ProductVariants.PageInfo
 		if !pi.HasNextPage || pi.EndCursor == nil {
-			break
+			return out, nil
 		}
 		cursor = pi.EndCursor
 	}
-	if len(cat) == 0 {
-		return nil, fmt.Errorf("the store has no active product variants priced above 0; add a few products in the Shopify admin, then try again")
-	}
-	return SortCatalog(cat), nil
 }
 
 // CreatedOrder identifies an order Shopify created.
@@ -165,7 +181,7 @@ func (c *Client) OrderCreate(ctx context.Context, order *OrderInput) (*CreatedOr
 			UserErrors []UserError   `json:"userErrors"`
 		} `json:"orderCreate"`
 	}
-	vars := map[string]any{"order": order, "options": orderOptions}
+	vars := map[string]any{"order": order, "options": OrderCreateOptions}
 	if err := c.Do(ctx, mOrderCreate, vars, &out); err != nil {
 		return nil, nil, err
 	}
@@ -196,7 +212,7 @@ func (c *Client) OrderCancel(ctx context.Context, orderID string, refund bool, r
 		return err
 	}
 	if len(out.OrderCancel.UserErrors) > 0 {
-		return fmt.Errorf("orderCancel: %s", formatUserErrors(out.OrderCancel.UserErrors))
+		return fmt.Errorf("orderCancel: %s", FormatUserErrors(out.OrderCancel.UserErrors))
 	}
 	return nil
 }
@@ -210,16 +226,16 @@ type TaggedOrder struct {
 }
 
 // OrdersByTag returns one page of orders carrying tag.
-func (c *Client) OrdersByTag(ctx context.Context, tag string, cursor *string) ([]TaggedOrder, pageInfo, error) {
+func (c *Client) OrdersByTag(ctx context.Context, tag string, cursor *string) ([]TaggedOrder, PageInfo, error) {
 	var out struct {
 		Orders struct {
 			Nodes    []TaggedOrder `json:"nodes"`
-			PageInfo pageInfo      `json:"pageInfo"`
+			PageInfo PageInfo      `json:"PageInfo"`
 		} `json:"orders"`
 	}
 	vars := map[string]any{"query": "tag:'" + tag + "'", "cursor": cursor}
 	if err := c.Do(ctx, qOrdersByTag, vars, &out); err != nil {
-		return nil, pageInfo{}, err
+		return nil, PageInfo{}, err
 	}
 	return out.Orders.Nodes, out.Orders.PageInfo, nil
 }
@@ -251,7 +267,7 @@ func (c *Client) OrderDelete(ctx context.Context, id string) error {
 		return err
 	}
 	if len(out.OrderDelete.UserErrors) > 0 {
-		return fmt.Errorf("orderDelete: %s", formatUserErrors(out.OrderDelete.UserErrors))
+		return fmt.Errorf("orderDelete: %s", FormatUserErrors(out.OrderDelete.UserErrors))
 	}
 	return nil
 }
@@ -263,16 +279,16 @@ type TaggedCustomer struct {
 }
 
 // CustomersByTag returns one page of customers carrying tag.
-func (c *Client) CustomersByTag(ctx context.Context, tag string, cursor *string) ([]TaggedCustomer, pageInfo, error) {
+func (c *Client) CustomersByTag(ctx context.Context, tag string, cursor *string) ([]TaggedCustomer, PageInfo, error) {
 	var out struct {
 		Customers struct {
 			Nodes    []TaggedCustomer `json:"nodes"`
-			PageInfo pageInfo         `json:"pageInfo"`
+			PageInfo PageInfo         `json:"PageInfo"`
 		} `json:"customers"`
 	}
 	vars := map[string]any{"query": "tag:'" + tag + "'", "cursor": cursor}
 	if err := c.Do(ctx, qCustomersByTag, vars, &out); err != nil {
-		return nil, pageInfo{}, err
+		return nil, PageInfo{}, err
 	}
 	return out.Customers.Nodes, out.Customers.PageInfo, nil
 }
@@ -288,7 +304,7 @@ func (c *Client) CustomerDelete(ctx context.Context, id string) error {
 		return err
 	}
 	if len(out.CustomerDelete.UserErrors) > 0 {
-		return fmt.Errorf("customerDelete: %s", formatUserErrors(out.CustomerDelete.UserErrors))
+		return fmt.Errorf("customerDelete: %s", FormatUserErrors(out.CustomerDelete.UserErrors))
 	}
 	return nil
 }

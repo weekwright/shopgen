@@ -1,6 +1,10 @@
-package main
+package shopgen
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/weekwright/shopgen/internal/shopify"
+)
 
 var firstNames = []string{
 	"Olivia", "Liam", "Emma", "Noah", "Ava", "Oliver", "Sophia", "Elijah",
@@ -113,7 +117,7 @@ func SyntheticCatalog() []Variant {
 			}
 			out = append(out, Variant{
 				ID:         fmt.Sprintf("gid://shopify/ProductVariant/%d", id),
-				Title:      displayTitle(p.Title, v),
+				Title:      shopify.ProductVariant{ProductTitle: p.Title, Title: v}.DisplayTitle(),
 				PriceCents: price,
 			})
 			id++

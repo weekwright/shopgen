@@ -35,8 +35,8 @@
   // Long outcome lists wrap awkwardly in a screenshot; keep the first lines tidy.
   const trim = (html) => html.replace(/\n$/, '');
   document.getElementById('out').innerHTML =
-    '<span class="p">$</span> <span class="cmd">shopgen plan -profile profile.example.json</span>\n' + trim(D.planAnsi) +
-    '\n\n<span class="p">$</span> <span class="cmd">shopgen run -profile profile.example.json -limit 8</span>\n' + trim(D.runAnsi);
+    '<span class="p">$</span> <span class="cmd">shopgen plan -p profile.example.json</span>\n' + trim(D.planAnsi) +
+    '\n\n<span class="p">$</span> <span class="cmd">shopgen run -p profile.example.json --limit 8</span>\n' + trim(D.runAnsi);
 </script>
 </body>
 </html>

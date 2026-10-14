@@ -1,4 +1,4 @@
-package main
+package shopgen
 
 import (
 	"fmt"
@@ -6,6 +6,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/weekwright/shopgen/internal/shopify"
+	"github.com/weekwright/shopgen/internal/ui"
 )
 
 // Summary is the headline numbers of a plan.
@@ -69,9 +72,9 @@ func Summarize(p *Profile, plan *Plan, opm float64) Summary {
 
 // Write prints the summary. The first six lines are a stable format that
 // scripts may parse; styling is added only when st is enabled.
-func (s Summary) Write(w io.Writer, st Style) {
+func (s Summary) Write(w io.Writer, st ui.Style) {
 	row := func(label, value string) {
-		fmt.Fprintf(w, "%s%s\n", st.Bold(padRight(label, 12)), value)
+		fmt.Fprintf(w, "%s%s\n", st.Bold(ui.PadRight(label, 12)), value)
 	}
 	dash := func(t time.Time) string { return t.Format("2006-01-02") }
 
@@ -91,7 +94,7 @@ func (s Summary) Write(w io.Writer, st Style) {
 		aov = (s.GrossCents + int64(s.Orders)/2) / int64(s.Orders)
 	}
 	row("revenue", fmt.Sprintf("%s %s gross, %s refunded, AOV %s",
-		formatAmount(s.GrossCents), s.Currency, formatAmount(s.RefundedCents), formatAmount(aov)))
+		shopify.FormatAmount(s.GrossCents), s.Currency, shopify.FormatAmount(s.RefundedCents), shopify.FormatAmount(aov)))
 
 	keys := sortedKeys(s.Outcomes)
 	parts := make([]string, 0, len(keys))
@@ -103,19 +106,19 @@ func (s Summary) Write(w io.Writer, st Style) {
 		parts = append(parts, fmt.Sprintf("%s %d (%.1f%%)", st.Outcome(k), s.Outcomes[k], pct))
 	}
 	row("outcomes", strings.Join(parts, ", "))
-	row("duration", fmt.Sprintf("%s at %.1f orders/min", st.Bold(formatDuration(s.Duration())), s.OPM))
+	row("duration", fmt.Sprintf("%s at %.1f orders/min", st.Bold(ui.FormatDuration(s.Duration())), s.OPM))
 
 	if s.CatalogSize > 0 {
 		row("catalog", fmt.Sprintf("%d variants %s", s.CatalogSize, st.Dim("("+s.CatalogSource+")")))
 	}
 	if len(s.PerDay) > 1 {
-		row("volume", st.Brand(sparkline(s.PerDay, 60)))
+		row("volume", st.Brand(ui.Sparkline(s.PerDay, 60)))
 	}
 }
 
 // outcomeBreakdown is a compact "fulfilled 4, cancelled 1" string, most
 // common first.
-func outcomeBreakdown(counts map[string]int, st Style) string {
+func outcomeBreakdown(counts map[string]int, st ui.Style) string {
 	keys := sortedKeys(counts)
 	sort.SliceStable(keys, func(i, j int) bool { return counts[keys[i]] > counts[keys[j]] })
 	parts := make([]string, 0, len(keys))

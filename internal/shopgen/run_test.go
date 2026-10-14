@@ -1,4 +1,4 @@
-package main
+package shopgen
 
 import (
 	"bytes"
@@ -10,6 +10,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/weekwright/shopgen/internal/shopify"
+	"github.com/weekwright/shopgen/internal/shopify/shopifytest"
+	"github.com/weekwright/shopgen/internal/ui"
 )
 
 // runNow is the fixed clock for end-to-end tests.
@@ -48,7 +52,7 @@ func (s *sleepRecorder) Sleep(ctx context.Context, d time.Duration) error {
 
 type harness struct {
 	t      *testing.T
-	fake   *fakeShop
+	fake   *shopifytest.Server
 	dir    string
 	prof   string
 	log    *bytes.Buffer
@@ -62,17 +66,16 @@ func newHarness(t *testing.T) *harness {
 	if err := os.WriteFile(prof, []byte(e2eProfile), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return &harness{t: t, fake: newFakeShop(t), dir: dir, prof: prof, log: &bytes.Buffer{}, sleeps: &sleepRecorder{}}
+	return &harness{t: t, fake: shopifytest.New(t), dir: dir, prof: prof, log: &bytes.Buffer{}, sleeps: &sleepRecorder{}}
 }
 
 func (h *harness) config() RunConfig {
 	return RunConfig{
-		Endpoint:    h.fake.URL(),
-		APIVersion:  defaultAPIVersion,
+		Conn:        Conn{Endpoint: h.fake.URL(), APIVersion: "2026-10"},
 		ProfilePath: h.prof,
 		OPM:         5,
 		StateDir:    filepath.Join(h.dir, "state"),
-		UI:          NewUI(h.log),
+		UI:          ui.New(h.log),
 		Now:         func() time.Time { return runNow },
 		Sleep:       h.sleeps.Sleep,
 	}
@@ -99,7 +102,7 @@ func (h *harness) state(id string) *State {
 
 // assertNoDuplicates checks every sgseq tag appears at most once and returns
 // the set of indices seen.
-func assertNoDuplicates(t *testing.T, orders []fakeOrder) map[string]bool {
+func assertNoDuplicates(t *testing.T, orders []shopifytest.Order) map[string]bool {
 	t.Helper()
 	seen := map[string]bool{}
 	for _, o := range orders {
@@ -117,14 +120,14 @@ func assertNoDuplicates(t *testing.T, orders []fakeOrder) map[string]bool {
 
 func TestRunLimitResumeAndPurge(t *testing.T) {
 	h := newHarness(t)
-	h.fake.throttleOn = 2
+	h.fake.ThrottleOn = 2
 
 	cfg := h.config()
 	cfg.Limit = 5
 	if err := Run(context.Background(), cfg); err != nil {
 		t.Fatalf("run: %v\n%s", err, h.log)
 	}
-	orders, _, _, creates := h.fake.snapshot()
+	orders, _, _, creates := h.fake.Snapshot()
 	if len(orders) != 5 {
 		t.Fatalf("want 5 orders after -limit 5, got %d\n%s", len(orders), h.log)
 	}
@@ -158,7 +161,7 @@ func TestRunLimitResumeAndPurge(t *testing.T) {
 		t.Fatalf("resume: %v\n%s", err, h.log)
 	}
 	st := h.state(id)
-	orders, customers, cancels, _ := h.fake.snapshot()
+	orders, customers, cancels, _ := h.fake.Snapshot()
 	if st.Done != st.Total || st.Created != st.Total || len(orders) != st.Total {
 		t.Fatalf("done=%d created=%d total=%d store=%d", st.Done, st.Created, st.Total, len(orders))
 	}
@@ -169,7 +172,7 @@ func TestRunLimitResumeAndPurge(t *testing.T) {
 
 	cancelled := 0
 	for _, o := range orders {
-		if hasTag(o.Tags, "shopgen-cancelled") {
+		if shopifytest.HasTag(o.Tags, "shopgen-cancelled") {
 			cancelled++
 			if cancels[o.ID] != 1 {
 				t.Fatalf("order %s tagged cancelled got %d cancels", o.Name, cancels[o.ID])
@@ -190,18 +193,18 @@ func TestRunLimitResumeAndPurge(t *testing.T) {
 
 	// Purge the run.
 	res, err := Purge(context.Background(), PurgeConfig{
-		Endpoint: h.fake.URL(), Run: id, Yes: true, StateDir: filepath.Join(h.dir, "state"),
-		UI: NewUI(h.log), Sleep: h.sleeps.Sleep,
+		Conn: Conn{Endpoint: h.fake.URL()}, Run: id, Yes: true, StateDir: filepath.Join(h.dir, "state"),
+		UI: ui.New(h.log), Sleep: h.sleeps.Sleep,
 	})
 	if err != nil {
 		t.Fatalf("purge: %v", err)
 	}
-	orders, customers, _, _ = h.fake.snapshot()
+	orders, customers, _, _ = h.fake.Snapshot()
 	if len(orders) != 0 {
 		t.Fatalf("%d orders left after purge", len(orders))
 	}
 	for _, c := range customers {
-		if hasTag(c.Tags, tagShopgen) {
+		if shopifytest.HasTag(c.Tags, TagShopgen) {
 			t.Fatalf("tagged customer %s left after purge", c.Email)
 		}
 	}
@@ -212,20 +215,20 @@ func TestRunLimitResumeAndPurge(t *testing.T) {
 
 func TestRunDroppedConnectionNoDuplicate(t *testing.T) {
 	h := newHarness(t)
-	h.fake.dropOn = 3
+	h.fake.DropOn = 3
 	cfg := h.config()
 	cfg.Limit = 6
 	if err := Run(context.Background(), cfg); err != nil {
 		t.Fatalf("run: %v\n%s", err, h.log)
 	}
-	orders, _, _, _ := h.fake.snapshot()
+	orders, _, _, _ := h.fake.Snapshot()
 	if len(orders) != 6 {
 		t.Fatalf("want exactly 6 orders, got %d\n%s", len(orders), h.log)
 	}
 	seen := assertNoDuplicates(t, orders)
 	id := h.runIDs()[0]
 	for i := 0; i < 6; i++ {
-		if !seen[seqTag(id, i)] {
+		if !seen[SeqTag(id, i)] {
 			t.Fatalf("gap: no order for index %d", i)
 		}
 	}
@@ -239,12 +242,12 @@ func TestRunDroppedConnectionNoDuplicate(t *testing.T) {
 
 func TestRunRefusesNonDevStore(t *testing.T) {
 	h := newHarness(t)
-	h.fake.dev = false
+	h.fake.Dev = false
 	err := Run(context.Background(), h.config())
 	if err == nil || !strings.Contains(err.Error(), "not a development store") {
 		t.Fatalf("want refusal, got %v", err)
 	}
-	if _, _, _, creates := h.fake.snapshot(); creates != 0 {
+	if _, _, _, creates := h.fake.Snapshot(); creates != 0 {
 		t.Fatalf("%d creates on a non-dev store", creates)
 	}
 	if ids := h.runIDs(); len(ids) != 0 {
@@ -254,14 +257,14 @@ func TestRunRefusesNonDevStore(t *testing.T) {
 
 func TestRunAllowNonDev(t *testing.T) {
 	h := newHarness(t)
-	h.fake.dev = false
+	h.fake.Dev = false
 	cfg := h.config()
 	cfg.AllowNonDev = true
 	cfg.Limit = 1
 	if err := Run(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	if orders, _, _, _ := h.fake.snapshot(); len(orders) != 1 {
+	if orders, _, _, _ := h.fake.Snapshot(); len(orders) != 1 {
 		t.Fatalf("want 1 order, got %d", len(orders))
 	}
 }
@@ -285,7 +288,7 @@ func TestRunInterruptAndResume(t *testing.T) {
 	if st := h.state(id); st.Done != 2 || st.Inflight != nil {
 		t.Fatalf("state after pause %+v", st)
 	}
-	if !strings.Contains(h.log.String(), "shopgen run -resume "+id) {
+	if !strings.Contains(h.log.String(), "shopgen run --resume "+id) {
 		t.Fatalf("resume command not printed:\n%s", h.log)
 	}
 
@@ -295,7 +298,7 @@ func TestRunInterruptAndResume(t *testing.T) {
 	if err := Run(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	orders, _, _, _ := h.fake.snapshot()
+	orders, _, _, _ := h.fake.Snapshot()
 	st := h.state(id)
 	if len(orders) != st.Total || len(assertNoDuplicates(t, orders)) != st.Total {
 		t.Fatalf("after resume: %d orders, total %d", len(orders), st.Total)
@@ -328,7 +331,7 @@ func TestResumeReconcilesInflightOrder(t *testing.T) {
 	}
 	plan, _ := Generate(p, cat, st.GenNow)
 	in := BuildOrder(id, p, cat, plan.Orders[idx])
-	client := NewClient(h.fake.URL(), "")
+	client := shopify.NewClient(h.fake.URL(), nil)
 	if _, uerrs, err := client.OrderCreate(context.Background(), in); err != nil || len(uerrs) > 0 {
 		t.Fatalf("seed order: %v %v", err, uerrs)
 	}
@@ -338,7 +341,7 @@ func TestResumeReconcilesInflightOrder(t *testing.T) {
 	if err := Run(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
-	orders, _, _, _ := h.fake.snapshot()
+	orders, _, _, _ := h.fake.Snapshot()
 	final := h.state(id)
 	if len(orders) != final.Total || len(assertNoDuplicates(t, orders)) != final.Total {
 		t.Fatalf("%d orders for total %d", len(orders), final.Total)
@@ -368,7 +371,7 @@ func TestResumeRejectsTamperedProfile(t *testing.T) {
 
 func TestRunFailFast(t *testing.T) {
 	h := newHarness(t)
-	h.fake.rejectCreates = true
+	h.fake.RejectCreates = true
 
 	err := Run(context.Background(), h.config())
 	if err == nil || !strings.Contains(err.Error(), "first 3 creates failed") {
@@ -377,5 +380,17 @@ func TestRunFailFast(t *testing.T) {
 	st := h.state(h.runIDs()[0])
 	if st.Done != 0 || st.Failed != 0 {
 		t.Fatalf("fail-fast should roll back so orders are retried: %+v", st)
+	}
+}
+
+func TestRunRefusesMissingScopes(t *testing.T) {
+	h := newHarness(t)
+	h.fake.Scopes = []string{"read_products", "write_orders"}
+	err := Run(context.Background(), h.config())
+	if err == nil || !strings.Contains(err.Error(), "write_customers") {
+		t.Fatalf("want missing-scope error, got %v", err)
+	}
+	if _, _, _, creates := h.fake.Snapshot(); creates != 0 {
+		t.Fatalf("%d creates without scopes", creates)
 	}
 }

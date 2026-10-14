@@ -1,4 +1,7 @@
-package main
+// Package shopify is a small Admin GraphQL client with the retry and
+// idempotency rules shopgen depends on, plus helpers for Shopify-specific
+// chores: store domains, GIDs, money, access tokens and access scopes.
+package shopify
 
 import (
 	"bytes"
@@ -23,12 +26,15 @@ var ErrAmbiguous = errors.New("no reliable reply from Shopify after sending")
 // ErrAuth is returned for 401 and 403 responses.
 var ErrAuth = errors.New("unauthorized")
 
+// UserAgent is sent with every request.
+var UserAgent = "shopgen"
+
 const maxAttempts = 10
 
 // Client talks to the Shopify Admin GraphQL API.
 type Client struct {
 	Endpoint string
-	Token    string
+	Tokens   TokenSource
 	HTTP     *http.Client
 	// Sleep waits between retries; it must honor ctx. Tests replace it.
 	Sleep func(ctx context.Context, d time.Duration) error
@@ -36,31 +42,29 @@ type Client struct {
 	Notify func(msg string)
 }
 
-// NewClient returns a client for endpoint with a 60 s HTTP timeout.
-func NewClient(endpoint, token string) *Client {
+// NewClient returns a client for a GraphQL endpoint with a 60 s HTTP timeout.
+// A nil tokens source sends no access token (for tests against a fake).
+func NewClient(endpoint string, tokens TokenSource) *Client {
 	return &Client{
 		Endpoint: endpoint,
-		Token:    token,
+		Tokens:   tokens,
 		HTTP:     &http.Client{Timeout: 60 * time.Second},
-		Sleep:    sleepCtx,
+		Sleep:    sleep,
 	}
 }
 
-// AdminEndpoint builds the GraphQL URL for a store domain.
-func AdminEndpoint(store, version string) string {
-	return "https://" + store + "/admin/api/" + version + "/graphql.json"
-}
-
-// NormalizeStore turns "my-shop" or "https://my-shop.myshopify.com/" into
-// "my-shop.myshopify.com".
-func NormalizeStore(s string) string {
-	s = strings.TrimSpace(strings.ToLower(s))
-	s = strings.TrimPrefix(strings.TrimPrefix(s, "https://"), "http://")
-	s = strings.TrimSuffix(s, "/")
-	if s != "" && !strings.Contains(s, ".") {
-		s += ".myshopify.com"
+func sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
 	}
-	return s
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 type gqlError struct {
@@ -85,7 +89,8 @@ type gqlResponse struct {
 	} `json:"extensions"`
 }
 
-func isMutation(q string) bool {
+// IsMutation reports whether a GraphQL document starts with "mutation".
+func IsMutation(q string) bool {
 	return strings.HasPrefix(strings.TrimSpace(q), "mutation")
 }
 
@@ -105,34 +110,44 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
+// errRefreshed marks a 401 after which the token source issued a new token;
+// the request is retried immediately, once.
+var errRefreshed = errors.New("access token refreshed")
+
 // Do runs one GraphQL operation and decodes its data into out. It retries
 // transient failures and throttling, and returns ErrAmbiguous when a mutation
 // may have been committed without a reply.
 func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out any) error {
-	mutation := isMutation(query)
+	mutation := IsMutation(query)
 	body, err := json.Marshal(map[string]any{"query": query, "variables": vars})
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
-	sleep := c.Sleep
-	if sleep == nil {
-		sleep = sleepCtx
+	wait := c.Sleep
+	if wait == nil {
+		wait = sleep
 	}
+	refreshed := false
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		wait, err := c.attempt(ctx, mutation, body, attempt, out)
+		d, err := c.attempt(ctx, mutation, body, attempt, !refreshed, out)
+		if errors.Is(err, errRefreshed) {
+			refreshed = true
+			attempt--
+			continue
+		}
 		if err == nil {
 			return nil
 		}
 		if ctx.Err() != nil && !errors.Is(err, ErrAmbiguous) {
 			return ctx.Err()
 		}
-		if wait < 0 {
+		if d < 0 {
 			return err
 		}
 		lastErr = err
 		if attempt < maxAttempts {
-			if err := sleep(ctx, wait); err != nil {
+			if err := wait(ctx, d); err != nil {
 				return err
 			}
 		}
@@ -142,7 +157,7 @@ func (c *Client) Do(ctx context.Context, query string, vars map[string]any, out 
 
 // attempt makes one request. It returns (wait >= 0, err) for a retryable
 // failure and (-1, err) for a final one.
-func (c *Client) attempt(ctx context.Context, mutation bool, body []byte, attempt int, out any) (time.Duration, error) {
+func (c *Client) attempt(ctx context.Context, mutation bool, body []byte, attempt int, mayRefresh bool, out any) (time.Duration, error) {
 	var wrote bool
 	trace := &httptrace.ClientTrace{WroteRequest: func(i httptrace.WroteRequestInfo) {
 		if i.Err == nil {
@@ -155,9 +170,13 @@ func (c *Client) attempt(ctx context.Context, mutation bool, body []byte, attemp
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "shopgen/"+version)
-	if c.Token != "" {
-		req.Header.Set("X-Shopify-Access-Token", c.Token)
+	req.Header.Set("User-Agent", UserAgent)
+	if c.Tokens != nil {
+		tok, err := c.Tokens.Token(ctx)
+		if err != nil {
+			return -1, fmt.Errorf("%w: %v", ErrAuth, err)
+		}
+		req.Header.Set("X-Shopify-Access-Token", tok)
 	}
 	hc := c.HTTP
 	if hc == nil {
@@ -185,8 +204,12 @@ func (c *Client) attempt(ctx context.Context, mutation bool, body []byte, attemp
 			wait = time.Duration(s * float64(time.Second))
 		}
 		return wait, errors.New("HTTP 429 Too Many Requests")
+	case code == http.StatusUnauthorized && mayRefresh && c.refresh(ctx):
+		// An expired token is rejected before anything runs, so even a
+		// mutation is safe to resend.
+		return 0, errRefreshed
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
-		return -1, fmt.Errorf("%w: HTTP %d from Shopify; check SHOPIFY_ACCESS_TOKEN and that the app has the read_products, write_orders and write_customers scopes", ErrAuth, code)
+		return -1, fmt.Errorf("%w: HTTP %d from Shopify; check the access token and that the app has the %s scopes", ErrAuth, code, strings.Join(RequiredScopes, ", "))
 	case code == http.StatusServiceUnavailable:
 		return backoff(attempt), fmt.Errorf("HTTP %d", code)
 	case code >= 500:
@@ -221,7 +244,7 @@ func (c *Client) attempt(ctx context.Context, mutation bool, body []byte, attemp
 					wait = time.Duration(need/ts.RestoreRate*float64(time.Second)) + 250*time.Millisecond
 				}
 				if c.Notify != nil {
-					c.Notify(fmt.Sprintf("throttled by Shopify; retrying in %s", formatDuration(wait)))
+					c.Notify(fmt.Sprintf("throttled by Shopify; retrying in %.1fs", wait.Seconds()))
 				}
 				return wait, errors.New("THROTTLED")
 			}
@@ -238,4 +261,22 @@ func (c *Client) attempt(ctx context.Context, mutation bool, body []byte, attemp
 		}
 	}
 	return 0, nil
+}
+
+// refresh asks a refreshable token source for a new token.
+func (c *Client) refresh(ctx context.Context) bool {
+	r, ok := c.Tokens.(Refresher)
+	if !ok {
+		return false
+	}
+	if err := r.Refresh(ctx); err != nil {
+		if c.Notify != nil {
+			c.Notify("could not refresh the access token: " + err.Error())
+		}
+		return false
+	}
+	if c.Notify != nil {
+		c.Notify("access token expired; fetched a fresh one")
+	}
+	return true
 }

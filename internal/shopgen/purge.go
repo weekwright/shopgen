@@ -1,4 +1,4 @@
-package main
+package shopgen
 
 import (
 	"bufio"
@@ -9,21 +9,21 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/weekwright/shopgen/internal/shopify"
+	"github.com/weekwright/shopgen/internal/ui"
 )
 
 // PurgeConfig holds purge's inputs.
 type PurgeConfig struct {
-	Store       string
-	Endpoint    string
-	APIVersion  string
-	Token       string
+	Conn
 	Run         string
 	All         bool
 	Yes         bool
 	StateDir    string
 	AllowNonDev bool
 
-	UI    *UI
+	UI    *ui.UI
 	In    io.Reader // confirmation input; defaults to os.Stdin
 	Sleep func(context.Context, time.Duration) error
 }
@@ -37,23 +37,23 @@ type PurgeResult struct {
 // touches anything untagged.
 func Purge(ctx context.Context, cfg PurgeConfig) (PurgeResult, error) {
 	var res PurgeResult
-	ui := cfg.UI
-	if ui == nil {
-		ui = NewUI(os.Stderr)
+	u := cfg.UI
+	if u == nil {
+		u = ui.New(os.Stderr)
 	}
 	if cfg.Run == "" && !cfg.All || cfg.Run != "" && cfg.All {
-		return res, usageErrorf("purge needs exactly one of -run <id> or -all")
+		return res, UsageErrorf("purge needs exactly one of --run <id> or --all")
 	}
 	if cfg.StateDir == "" {
-		cfg.StateDir = defaultStateDir
+		cfg.StateDir = DefaultStateDir
 	}
-	tag, scope := tagShopgen, "every shopgen run"
-	store := NormalizeStore(cfg.Store)
+	tag, scope := TagShopgen, "every shopgen run"
+	store := shopify.ShopDomain(cfg.Store)
 	if cfg.Run != "" {
 		if !runIDPattern.MatchString(cfg.Run) {
-			return res, usageErrorf("-run: %q is not a run ID (want YYYYMMDD-xxxxxx)", cfg.Run)
+			return res, UsageErrorf("--run: %q is not a run ID (want YYYYMMDD-xxxxxx)", cfg.Run)
 		}
-		tag, scope = runTag(cfg.Run), "run "+cfg.Run
+		tag, scope = RunTag(cfg.Run), "run "+cfg.Run
 		// Default the store to the one the run wrote to.
 		if store == "" && cfg.Endpoint == "" {
 			if st, err := RunDir(filepath.Join(cfg.StateDir, cfg.Run)).LoadState(); err == nil {
@@ -62,11 +62,13 @@ func Purge(ctx context.Context, cfg PurgeConfig) (PurgeResult, error) {
 		}
 	}
 
-	client, err := newClient(store, cfg.Endpoint, cfg.APIVersion, cfg.Token, cfg.Sleep, ui)
+	conn := cfg.Conn
+	conn.Store = store
+	client, err := conn.Client(cfg.Sleep, u)
 	if err != nil {
 		return res, err
 	}
-	shop, err := safetyGate(ctx, client, ui, cfg.AllowNonDev)
+	shop, err := safetyGate(ctx, client, u, cfg.AllowNonDev)
 	if err != nil {
 		return res, err
 	}
@@ -76,28 +78,27 @@ func Purge(ctx context.Context, cfg PurgeConfig) (PurgeResult, error) {
 		if in == nil {
 			in = os.Stdin
 		}
-		fmt.Fprintf(ui.w, "%s Permanently delete orders and customers from %s in %s? Type 'delete' to confirm: ",
-			ui.Yellow("?"), ui.Bold(scope), ui.Bold(shop.Domain))
+		u.Prompt(fmt.Sprintf("Permanently delete orders and customers from %s in %s? Type 'delete' to confirm:", u.Bold(scope), u.Bold(shop.Domain)))
 		line, _ := bufio.NewReader(in).ReadString('\n')
 		if strings.TrimSpace(line) != "delete" {
 			return res, fmt.Errorf("aborted; nothing was deleted")
 		}
 	}
 
-	ui.Infof("Deleting orders tagged %s", ui.Bold(tag))
-	if err := purgeOrders(ctx, client, ui, tag, &res); err != nil {
+	u.Infof("Deleting orders tagged %s", u.Bold(tag))
+	if err := purgeOrders(ctx, client, u, tag, &res); err != nil {
 		return res, err
 	}
-	ui.Infof("Deleting customers tagged %s", ui.Bold(tag))
-	if err := purgeCustomers(ctx, client, ui, tag, &res); err != nil {
+	u.Infof("Deleting customers tagged %s", u.Bold(tag))
+	if err := purgeCustomers(ctx, client, u, tag, &res); err != nil {
 		return res, err
 	}
 
-	ui.Successf("Orders: %s deleted, %s failed · Customers: %s deleted, %s kept",
-		ui.Green(fmt.Sprint(res.OrdersDeleted)), failedCount(ui, res.OrdersFailed),
-		ui.Green(fmt.Sprint(res.CustomersDeleted)), ui.Dim(fmt.Sprint(res.CustomersKept)))
+	u.Successf("Orders: %s deleted, %s failed · Customers: %s deleted, %s kept",
+		u.Green(fmt.Sprint(res.OrdersDeleted)), failedCount(u, res.OrdersFailed),
+		u.Green(fmt.Sprint(res.CustomersDeleted)), u.Dim(fmt.Sprint(res.CustomersKept)))
 	if res.OrdersFailed > 0 || res.CustomersKept > 0 {
-		ui.Logf("%s", ui.Dim("Search indexing can lag a little; run purge again in a minute to catch stragglers."))
+		u.Logf("%s", u.Dim("Search indexing can lag a little; run purge again in a minute to catch stragglers."))
 	}
 	return res, nil
 }
@@ -110,7 +111,7 @@ type pageWalker struct {
 	seen   map[string]bool
 }
 
-func (w *pageWalker) next(ids []string, pi pageInfo) (more bool) {
+func (w *pageWalker) next(ids []string, pi shopify.PageInfo) (more bool) {
 	fresh := false
 	for _, id := range ids {
 		if !w.seen[id] {
@@ -128,7 +129,7 @@ func (w *pageWalker) next(ids []string, pi pageInfo) (more bool) {
 	return false
 }
 
-func purgeOrders(ctx context.Context, c *Client, ui *UI, tag string, res *PurgeResult) error {
+func purgeOrders(ctx context.Context, c *shopify.Client, u *ui.UI, tag string, res *PurgeResult) error {
 	w := &pageWalker{seen: map[string]bool{}}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -156,12 +157,12 @@ func purgeOrders(ctx context.Context, c *Client, ui *UI, tag string, res *PurgeR
 			}
 			if err != nil {
 				res.OrdersFailed++
-				ui.Warnf("could not delete %s: %v", o.Name, err)
+				u.Warnf("could not delete %s: %v", o.Name, err)
 				continue
 			}
 			res.OrdersDeleted++
 			if res.OrdersDeleted%25 == 0 {
-				ui.Logf("%d orders deleted…", res.OrdersDeleted)
+				u.Logf("%d orders deleted…", res.OrdersDeleted)
 			}
 		}
 		if !more {
@@ -170,7 +171,7 @@ func purgeOrders(ctx context.Context, c *Client, ui *UI, tag string, res *PurgeR
 	}
 }
 
-func purgeCustomers(ctx context.Context, c *Client, ui *UI, tag string, res *PurgeResult) error {
+func purgeCustomers(ctx context.Context, c *shopify.Client, u *ui.UI, tag string, res *PurgeResult) error {
 	w := &pageWalker{seen: map[string]bool{}}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -196,7 +197,7 @@ func purgeCustomers(ctx context.Context, c *Client, ui *UI, tag string, res *Pur
 			}
 			res.CustomersDeleted++
 			if res.CustomersDeleted%25 == 0 {
-				ui.Logf("%d customers deleted…", res.CustomersDeleted)
+				u.Logf("%d customers deleted…", res.CustomersDeleted)
 			}
 		}
 		if !more {

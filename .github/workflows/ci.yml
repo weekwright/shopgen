@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go: ['1.22', 'stable']
+        go: ['1.24', 'stable']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -33,5 +33,5 @@ jobs:
         shell: bash
         run: |
           for f in profile.example.json examples/*.json; do
-            go run . plan -profile "$f" > /dev/null
+            go run . plan --profile "$f" > /dev/null
           done

@@ -1,4 +1,4 @@
-package main
+package shopgen
 
 import (
 	"context"
@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/weekwright/shopgen/internal/shopify"
+	"github.com/weekwright/shopgen/internal/ui"
 )
 
 // Waits used around ambiguous and rate-limited creates. Package vars so tests
@@ -21,19 +24,14 @@ const (
 	maxCreateAttempts = 6
 	failFastAttempts  = 3
 	cancelTimeout     = 2 * time.Minute
-	defaultStateDir   = ".shopgen"
+	// DefaultStateDir is where run state lives unless --state-dir says otherwise.
+	DefaultStateDir = ".shopgen"
 )
 
-// ErrInterrupted is returned when the user pauses a run with Ctrl-C.
-var ErrInterrupted = errors.New("interrupted")
-
-// RunConfig holds everything run needs. Zero values are not defaults; main
-// fills them from flags.
+// RunConfig holds everything run needs. Zero values are not defaults; the
+// CLI fills them from flags, environment and config.
 type RunConfig struct {
-	Store       string
-	Endpoint    string
-	APIVersion  string
-	Token       string
+	Conn
 	ProfilePath string
 	OPM         float64
 	Limit       int
@@ -42,13 +40,15 @@ type RunConfig struct {
 	AllowNonDev bool
 	SkipCancels bool
 
-	UI    *UI
+	UI    *ui.UI
 	Now   func() time.Time
 	Sleep func(context.Context, time.Duration) error
 	// Abort, when done, abandons the in-flight request. The ctx passed to Run
 	// only stops the loop between orders.
 	Abort context.Context
 }
+
+var errNoProducts = errors.New("the store has no active product variants priced above 0; add a few products in the Shopify admin, then try again")
 
 // runInterval is the gap between create starts: 60s/opm plus 2% headroom.
 func runInterval(opm float64) time.Duration {
@@ -57,21 +57,21 @@ func runInterval(opm float64) time.Duration {
 
 type runner struct {
 	cfg     RunConfig
-	ui      *UI
-	client  *Client
+	ui      *ui.UI
+	client  *shopify.Client
 	dir     RunDir
 	st      *State
 	profile *Profile
 	catalog []Variant
 	plan    *Plan
-	shop    ShopInfo
+	shop    shopify.ShopInfo
 }
 
 func (r *runner) sleep(ctx context.Context, d time.Duration) error {
 	if r.cfg.Sleep != nil {
 		return r.cfg.Sleep(ctx, d)
 	}
-	return sleepCtx(ctx, d)
+	return ui.Sleep(ctx, d)
 }
 
 func (r *runner) now() time.Time {
@@ -81,64 +81,25 @@ func (r *runner) now() time.Time {
 	return time.Now()
 }
 
-// newClient builds a client for a store or an -endpoint override.
-func newClient(store, endpoint, apiVersion, token string, sleep func(context.Context, time.Duration) error, ui *UI) (*Client, error) {
-	if endpoint == "" {
-		if store == "" {
-			return nil, usageErrorf("no store: pass -store or set SHOPIFY_STORE")
-		}
-		if token == "" {
-			return nil, errors.New("SHOPIFY_ACCESS_TOKEN is not set; create a custom app in the store admin with read_products, write_orders and write_customers, and export its Admin API token")
-		}
-		endpoint = AdminEndpoint(store, apiVersion)
-	}
-	c := NewClient(endpoint, token)
-	if sleep != nil {
-		c.Sleep = sleep
-	}
-	if ui != nil {
-		c.Notify = func(msg string) { ui.Warnf("%s", msg) }
-	}
-	return c, nil
-}
-
-// safetyGate refuses to write to anything but a development store unless
-// explicitly allowed.
-func safetyGate(ctx context.Context, c *Client, ui *UI, allowNonDev bool) (ShopInfo, error) {
-	shop, err := c.Shop(ctx)
-	if err != nil {
-		return shop, fmt.Errorf("connect to store: %w", err)
-	}
-	if !shop.PartnerDevelopment {
-		if !allowNonDev {
-			return shop, fmt.Errorf("%s (%s) is not a development store; refusing to write. Pass -allow-non-dev if you really mean it", shop.Name, shop.Domain)
-		}
-		ui.Warnf("%s is %s a development store; continuing because of -allow-non-dev", ui.Bold(shop.Name), ui.Bold("not"))
-	} else {
-		ui.Infof("Connected to %s %s %s", ui.Bold(shop.Name), ui.Dim("("+shop.Domain+")"), ui.Green("· dev store ✓"))
-	}
-	return shop, nil
-}
-
 // Run creates (or resumes creating) a run's orders.
 func Run(ctx context.Context, cfg RunConfig) error {
 	if !(cfg.OPM > 0) {
-		return usageErrorf("-opm must be > 0")
+		return UsageErrorf("--opm must be > 0")
 	}
 	if cfg.StateDir == "" {
-		cfg.StateDir = defaultStateDir
+		cfg.StateDir = DefaultStateDir
 	}
 	r := &runner{cfg: cfg, ui: cfg.UI}
 	if r.ui == nil {
-		r.ui = NewUI(os.Stderr)
+		r.ui = ui.New(os.Stderr)
 	}
 
 	// Load what we can before touching the network, so bad input fails fast.
 	var profileBytes []byte
-	store := NormalizeStore(cfg.Store)
+	store := shopify.ShopDomain(cfg.Store)
 	if cfg.Resume != "" {
 		if !runIDPattern.MatchString(cfg.Resume) {
-			return usageErrorf("-resume: %q is not a run ID (want YYYYMMDD-xxxxxx)", cfg.Resume)
+			return UsageErrorf("--resume: %q is not a run ID (want YYYYMMDD-xxxxxx)", cfg.Resume)
 		}
 		r.dir = RunDir(filepath.Join(cfg.StateDir, cfg.Resume))
 		st, err := r.dir.LoadState()
@@ -173,12 +134,17 @@ func Run(ctx context.Context, cfg RunConfig) error {
 		r.profile, profileBytes = p, b
 	}
 
-	client, err := newClient(store, cfg.Endpoint, cfg.APIVersion, cfg.Token, cfg.Sleep, r.ui)
+	conn := cfg.Conn
+	conn.Store = store
+	client, err := conn.Client(cfg.Sleep, r.ui)
 	if err != nil {
 		return err
 	}
 	r.client = client
 	if r.shop, err = safetyGate(ctx, client, r.ui, cfg.AllowNonDev); err != nil {
+		return err
+	}
+	if err := checkScopes(ctx, conn, r.ui); err != nil {
 		return err
 	}
 	if r.shop.Currency != "" && r.shop.Currency != r.profile.Currency {
@@ -201,7 +167,7 @@ func Run(ctx context.Context, cfg RunConfig) error {
 
 	interval := runInterval(cfg.OPM)
 	remaining := r.st.Total - r.st.Done
-	r.ui.Logf("%s orders remaining at %.1f/min · eta %s", r.ui.Bold(fmt.Sprint(remaining)), cfg.OPM, r.ui.Bold(formatDuration(interval*time.Duration(remaining))))
+	r.ui.Logf("%s orders remaining at %.1f/min · eta %s", r.ui.Bold(fmt.Sprint(remaining)), cfg.OPM, r.ui.Bold(ui.FormatDuration(interval*time.Duration(remaining))))
 	r.ui.Hint("pause anytime with Ctrl-C, resume with", r.resumeCommand())
 
 	if err := r.reconcileInflight(ctx); err != nil {
@@ -212,10 +178,14 @@ func Run(ctx context.Context, cfg RunConfig) error {
 
 func (r *runner) startNew(ctx context.Context, store string, profileBytes []byte) error {
 	r.ui.Logf("Fetching catalog…")
-	cat, err := r.client.FetchCatalog(ctx)
+	variants, err := r.client.ActiveVariants(ctx)
 	if err != nil {
 		return err
 	}
+	if len(variants) == 0 {
+		return errNoProducts
+	}
+	cat := CatalogFromShopify(variants)
 	r.catalog = cat
 	now := r.now().UTC().Truncate(time.Second)
 	r.plan, err = Generate(r.profile, cat, now)
@@ -259,17 +229,17 @@ func (r *runner) resumeCommand() string {
 	if r.st != nil {
 		id = r.st.RunID
 	}
-	cmd := "shopgen run -resume " + id
-	if r.cfg.StateDir != defaultStateDir {
-		cmd += " -state-dir " + shellQuote(r.cfg.StateDir)
+	cmd := "shopgen run --resume " + id
+	if r.cfg.StateDir != DefaultStateDir {
+		cmd += " --state-dir " + shellQuote(r.cfg.StateDir)
 	}
 	return cmd
 }
 
 func (r *runner) purgeCommand() string {
-	cmd := "shopgen purge -run " + r.st.RunID
-	if r.cfg.StateDir != defaultStateDir {
-		cmd += " -state-dir " + shellQuote(r.cfg.StateDir)
+	cmd := "shopgen purge --run " + r.st.RunID
+	if r.cfg.StateDir != DefaultStateDir {
+		cmd += " --state-dir " + shellQuote(r.cfg.StateDir)
 	}
 	return cmd
 }
@@ -314,7 +284,7 @@ func (r *runner) reconcileInflight(ctx context.Context) error {
 			return ErrInterrupted
 		}
 	}
-	found, err := r.client.FindOrderByTag(ctx, seqTag(r.st.RunID, idx))
+	found, err := r.client.FindOrderByTag(ctx, SeqTag(r.st.RunID, idx))
 	if err != nil {
 		return fmt.Errorf("look up order %d: %w", idx+1, err)
 	}
@@ -352,14 +322,14 @@ func isRateLimitMessage(msg string) bool {
 
 // create runs orderCreate with idempotent retries: an ambiguous outcome is
 // resolved by looking the order up by its unique sgseq tag before retrying.
-func (r *runner) create(ctx context.Context, o PlannedOrder) (*CreatedOrder, error) {
+func (r *runner) create(ctx context.Context, o PlannedOrder) (*shopify.CreatedOrder, error) {
 	input := BuildOrder(r.st.RunID, r.profile, r.catalog, o)
-	tag := seqTag(r.st.RunID, o.Index)
+	tag := SeqTag(r.st.RunID, o.Index)
 	var lastErr error
 	for attempt := 1; attempt <= maxCreateAttempts; attempt++ {
 		created, userErrs, err := r.client.OrderCreate(ctx, input)
 		switch {
-		case errors.Is(err, ErrAmbiguous):
+		case errors.Is(err, shopify.ErrAmbiguous):
 			r.ui.Warnf("order %d: %v; checking whether it was created…", o.Index+1, err)
 			if err := r.sleep(ctx, AmbiguousWait); err != nil {
 				return nil, &fatalError{err: err, keepInflight: true}
@@ -369,23 +339,23 @@ func (r *runner) create(ctx context.Context, o PlannedOrder) (*CreatedOrder, err
 				return nil, &fatalError{err: fmt.Errorf("could not check whether order %d was created: %w", o.Index+1, ferr), keepInflight: true}
 			}
 			if found != nil {
-				return &CreatedOrder{ID: found.ID, Name: found.Name}, nil
+				return &shopify.CreatedOrder{ID: found.ID, Name: found.Name}, nil
 			}
 			lastErr = err
 		case err != nil:
 			if ctx.Err() != nil {
 				return nil, &fatalError{err: ctx.Err(), keepInflight: true}
 			}
-			if errors.Is(err, ErrAuth) {
+			if errors.Is(err, shopify.ErrAuth) {
 				return nil, &fatalError{err: err}
 			}
 			return nil, err
 		case len(userErrs) > 0:
-			msg := formatUserErrors(userErrs)
+			msg := shopify.FormatUserErrors(userErrs)
 			if !isRateLimitMessage(msg) {
 				return nil, errors.New(msg)
 			}
-			r.ui.Warnf("order %d: rate limited (%s); waiting %s", o.Index+1, msg, formatDuration(RateLimitWait))
+			r.ui.Warnf("order %d: rate limited (%s); waiting %s", o.Index+1, msg, ui.FormatDuration(RateLimitWait))
 			if err := r.sleep(ctx, RateLimitWait); err != nil {
 				return nil, &fatalError{err: err}
 			}
@@ -423,7 +393,7 @@ func (r *runner) loop(ctx context.Context, interval time.Duration) error {
 
 	for r.st.Done < r.st.Total {
 		if r.cfg.Limit > 0 && sessionCreated >= r.cfg.Limit {
-			r.ui.Infof("Reached -limit %d", r.cfg.Limit)
+			r.ui.Infof("Reached --limit %d", r.cfg.Limit)
 			r.ui.Hint("continue with", r.resumeCommand())
 			return nil
 		}
@@ -491,9 +461,9 @@ func (r *runner) loop(ctx context.Context, interval time.Duration) error {
 		}
 		if created != nil {
 			eta := interval * time.Duration(r.st.Total-r.st.Done)
-			r.ui.line(r.ui.Green("✓"), fmt.Sprintf("%s %s %s %s %s %s",
-				prefix, r.ui.Bold(padRight(created.Name, 7)), r.ui.Dim(local), padRight(r.ui.Outcome(o.Outcome), 19),
-				padRight(formatMoney(o.TotalCents, r.profile.Currency), 10), r.ui.Dim("eta "+formatDuration(eta))))
+			r.ui.Line(r.ui.Green("✓"), fmt.Sprintf("%s %s %s %s %s %s",
+				prefix, r.ui.Bold(ui.PadRight(created.Name, 7)), r.ui.Dim(local), ui.PadRight(r.ui.Outcome(o.Outcome), 19),
+				ui.PadRight(FormatMoney(o.TotalCents, r.profile.Currency), 10), r.ui.Dim("eta "+ui.FormatDuration(eta))))
 		}
 
 		if sessionCreated == 0 && sessionFailed == failFastAttempts && sessionAttempts == failFastAttempts {
@@ -512,13 +482,13 @@ func (r *runner) loop(ctx context.Context, interval time.Duration) error {
 		r.ui.Logf("this session: %s", outcomeBreakdown(counts, r.ui.Style))
 	}
 	if r.shop.Domain != "" {
-		r.ui.Hint("see them at", "https://admin.shopify.com/store/"+strings.TrimSuffix(r.shop.Domain, ".myshopify.com")+"/orders")
+		r.ui.Hint("see them at", shopify.AdminURL(r.shop.Domain, "orders"))
 	}
 	r.ui.Hint("remove everything this run created with", r.purgeCommand())
 	return nil
 }
 
-func failedCount(ui *UI, n int) string {
+func failedCount(ui *ui.UI, n int) string {
 	if n == 0 {
 		return ui.Dim("0")
 	}

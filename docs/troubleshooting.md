@@ -1,10 +1,21 @@
 # Troubleshooting
 
-**`HTTP 401` / `403` … check SHOPIFY_ACCESS_TOKEN and scopes**
-The token is missing, wrong, expired, or lacks a scope. The app needs `read_products`, `write_orders` and `write_customers`, and must be installed on the store you're targeting. Tokens from the client credentials grant expire after about a day: export a fresh one and `shopgen run -resume <id>`. Nothing is lost. See [Shopify setup](shopify-setup.md).
+**Start with `shopgen doctor`.** It checks credentials, the connection, the dev-store flag, scopes, the catalog and the profile without writing anything, and says which one is wrong.
+
+**`HTTP 401` / `403` … check the access token and scopes**
+The token is missing, wrong or expired, or the app isn't installed on this store. With `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET`, shopgen renews expired tokens itself; a static `SHOPIFY_ACCESS_TOKEN` can't be renewed, so export a fresh one and `shopgen run --resume <id>`. Nothing is lost. See [Shopify setup](shopify-setup.md).
+
+**`the access token is missing the write_customers scope(s)`**
+Add the scopes to the app, release a new version or reinstall it on the store, then try again. `doctor` lists what is granted.
+
+**`token request: … shop_not_permitted`**
+The client credentials grant only works when the app and the store belong to the same organization in the Dev Dashboard. Create the app in the store's organization, or use a legacy `shpat_` token.
+
+**`config: While parsing config: …`**
+shopgen read `./shopgen.yaml` (or the file given with `--config`) and it isn't valid. Fix it, or move it aside.
 
 **`… is not a development store; refusing to write`**
-Working as intended. Point `SHOPIFY_STORE` at a dev store, or pass `-allow-non-dev` if this is a staging store you own and understand the risk.
+Working as intended. Point `SHOPIFY_STORE` at a dev store, or pass `--allow-non-dev` if this is a staging store you own and understand the risk.
 
 **`the store has no active product variants priced above 0`**
 shopgen reads your catalog and never creates products. Add a few active products with prices.
@@ -31,7 +42,7 @@ Each planned order carries a unique `sgseq-<run>-<index>` tag. Search the admin 
 Search indexing lags a little behind deletes. Run `purge` again after a minute. Orders Shopify won't delete even after cancelling are listed as failed with Shopify's reason.
 
 **The run is slow**
-5 orders a minute is Shopify's cap for dev and trial stores. Raising `-opm` above 5 on a dev store just produces rate-limit errors, which shopgen waits out. Use a smaller window or `orders_per_day` for faster iterations.
+5 orders a minute is Shopify's cap for dev and trial stores. Raising `--opm` above 5 on a dev store just produces rate-limit errors, which shopgen waits out. Use a smaller window or `orders_per_day` for faster iterations.
 
 **Colors look wrong or garbled in CI logs**
 shopgen only colors output on a terminal. Set `NO_COLOR=1` to force plain output, or `FORCE_COLOR=1` to force color.

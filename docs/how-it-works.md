@@ -29,15 +29,16 @@ Money is integer cents throughout. Floating point appears only while computing t
 
 ### Startup
 
-1. **Safety gate.** `query { shop { name myshopifyDomain plan { partnerDevelopment } } }`. Not a dev store and no `-allow-non-dev`: exit before any write.
-2. **New run.** Read the profile bytes, fetch and sort the catalog, create a run ID `YYYYMMDD-<6 hex>`, and write `profile.json` (the exact bytes), `catalog.json` and `state.json` with `gen_now` into `.shopgen/<run-id>/`.
-3. **Resume.** Load those three files from the run directory. Never re-read the original profile path, never re-fetch the catalog. Regenerate the plan with the stored `gen_now` and refuse to continue if the order count differs from `state.total`, or if `profile.json` no longer matches its recorded hash.
+1. **Safety gate.** `query { shop { name myshopifyDomain plan { partnerDevelopment } } }`. Not a dev store and no `--allow-non-dev`: exit before any write.
+2. **Scope check.** List the token's granted scopes (`/admin/oauth/access_scopes.json`, via go-shopify) and stop if `read_products`, `write_orders` or `write_customers` is missing. A `write_` scope implies its `read_` scope. If the list can't be fetched, shopgen warns and lets the first write decide.
+3. **New run.** Read the profile bytes, fetch and sort the catalog, create a run ID `YYYYMMDD-<6 hex>`, and write `profile.json` (the exact bytes), `catalog.json` and `state.json` with `gen_now` into `.shopgen/<run-id>/`.
+4. **Resume.** Load those three files from the run directory. Never re-read the original profile path, never re-fetch the catalog. Regenerate the plan with the stored `gen_now` and refuse to continue if the order count differs from `state.total`, or if `profile.json` no longer matches its recorded hash.
 
 ### The loop
 
 For each index from `done` to `total`:
 
-1. Stop if `-limit` successes have been reached this session.
+1. Stop if `--limit` successes have been reached this session.
 2. **Pace**: wait until the previous start + 60 s ÷ opm × 1.02. The 2% headroom keeps clock skew from tripping the 5/min cap. Ctrl-C during the wait pauses immediately.
 3. Record `inflight = index` in `state.json`.
 4. **Create** the order (below). On success append to `orders.jsonl` and, if the plan says so, `orderCancel`. On failure append to `failures.jsonl`.
@@ -83,12 +84,17 @@ The `inflight` marker covers what the in-process retry can't: a crash, `kill -9`
 | `429` | Wait `Retry-After` seconds, else exponential backoff |
 | `503`, or any `5xx` on a query | Backoff and retry |
 | `500`/`502`/`504` on a mutation | `ErrAmbiguous` (see above) |
-| `401` / `403` | Fail immediately with a hint about scopes |
+| `401` with client credentials | Fetch a new token and resend once (a rejected token means nothing ran, so even a mutation is safe to resend) |
+| `401` / `403` otherwise | Fail immediately with a hint about scopes |
 | Other `4xx` | Fail with the body, truncated to 500 characters |
 | GraphQL `THROTTLED` | Wait `max(requested − available, 1) ÷ restoreRate + 250 ms`, from `extensions.cost.throttleStatus` |
 | Other GraphQL errors | Fail with their messages joined |
 
 Backoff is 1 s × 2^(attempt − 1), capped at 60 s. Every sleep honors cancellation. The HTTP timeout is 60 s.
+
+### Access tokens
+
+Requests get their token from a `TokenSource`. `SHOPIFY_ACCESS_TOKEN` becomes a fixed token. `SHOPIFY_CLIENT_ID` plus `SHOPIFY_CLIENT_SECRET` become a `ClientCredentials` source, which runs the [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant), caches the 24-hour token, renews it five minutes before expiry, and renews it early if Shopify answers `401`.
 
 ## State files
 
@@ -106,9 +112,20 @@ Written atomically (write `*.tmp`, fsync, rename), so a crash never leaves a hal
 
 ## Purge
 
-Purge deletes only objects carrying a shopgen tag: `shopgen-run-<id>` with `-run`, `shopgen` with `-all`.
+Purge deletes only objects carrying a shopgen tag: `shopgen-run-<id>` with `--run`, `shopgen` with `--all`.
 
 1. Page through `orders(first: 50, query: "tag:'<tag>'")`. For each order, `orderDelete`. If Shopify refuses and the order isn't cancelled, `orderCancel` (no refund, no restock, no notification), then delete again. Orders that still fail are remembered and skipped on later pages.
 2. Do the same for `customers(...)` with `customerDelete`. Customers who still have orders can't be deleted and are counted as kept.
 
 Search indexing can lag a little behind deletes, so a second `purge` a minute later sometimes catches stragglers.
+
+## Code layout
+
+| Path | What's in it |
+|---|---|
+| [`main.go`](../main.go) | Calls `cmd.Execute()` |
+| [`cmd/`](../cmd) | The cobra commands, one file each (`root`, `plan`, `run`, `purge`, `doctor`, `version`), and viper configuration in `root.go` |
+| [`internal/shopgen/`](../internal/shopgen) | Profiles, `Generate`, the run loop, state files, purge and doctor |
+| [`internal/shopify/`](../internal/shopify) | The GraphQL client, typed operations, order input types, token sources, and helpers for store domains, admin URLs, GIDs, money and scopes |
+| [`internal/shopify/shopifytest/`](../internal/shopify/shopifytest) | An in-memory fake Admin API with fault injection, used by every store-facing test |
+| [`internal/ui/`](../internal/ui) | lipgloss styling, log lines and the pacing countdown |

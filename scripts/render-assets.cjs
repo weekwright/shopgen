@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Renders the PNGs in docs/assets from the HTML sources in docs/assets/src.
 //
-//   DEMO_OUT=$PWD/docs/assets/src/run-demo.ansi go test -run TestDocsDemo -count=1 .   # optional
+//   make demo     # optional: re-record the run in the terminal screenshot
 //   node scripts/render-assets.cjs
 //
 // Needs Go (to generate real plan data) and Playwright with Chromium
@@ -30,7 +30,7 @@ try {
 
 function planData() {
   const tmp = path.join(os.tmpdir(), `shopgen-plan-${process.pid}.jsonl`);
-  execFileSync('go', ['run', '.', 'plan', '-profile', 'profile.example.json', '-out', tmp], {
+  execFileSync('go', ['run', '.', 'plan', '--profile', 'profile.example.json', '--out', tmp], {
     cwd: root,
     env: { ...process.env, SHOPIFY_STORE: '', NO_COLOR: '1' },
     stdio: ['ignore', 'ignore', 'inherit'],
@@ -74,20 +74,50 @@ function planData() {
 // ---------------------------------------------------------------------------
 // 2. ANSI (as emitted by shopgen's UI) to HTML spans.
 
+function xterm256(n) {
+  const base = ['#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5',
+    '#666666', '#f14c4c', '#23d18b', '#f5f543', '#3b8eea', '#d670d6', '#29b8db', '#ffffff'];
+  if (n < 16) return base[n];
+  if (n >= 232) { const v = 8 + (n - 232) * 10; return `rgb(${v},${v},${v})`; }
+  n -= 16;
+  const c = (x) => (x === 0 ? 0 : 55 + x * 40);
+  return `rgb(${c(Math.floor(n / 36))},${c(Math.floor(n / 6) % 6)},${c(n % 6)})`;
+}
+
+// Converts SGR escape sequences (bold, faint, 16/256/true color) to spans.
 function ansiToHtml(text) {
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const classes = { 1: 'b', 2: 'd', 31: 'red', 32: 'green', 33: 'yellow', 34: 'blue', 35: 'magenta', 36: 'cyan', '38;5;77': 'brand' };
   let html = '';
-  let open = [];
+  let open = 0;
+  let state = { bold: false, faint: false, color: null };
+  const emit = () => {
+    html += '</span>'.repeat(open);
+    open = 0;
+    const css = [];
+    if (state.bold) css.push('font-weight:700;color:#f4f6f7');
+    if (state.faint) css.push('opacity:.6');
+    if (state.color) css.push('color:' + state.color);
+    if (css.length) { html += `<span style="${css.join(';')}">`; open = 1; }
+  };
   for (const part of text.split(/(\x1b\[[0-9;]*m)/)) {
     const m = part.match(/^\x1b\[([0-9;]*)m$/);
     if (!m) { html += esc(part); continue; }
-    if (m[1] === '0' || m[1] === '') { html += '</span>'.repeat(open.length); open = []; continue; }
-    const cls = classes[m[1]] || '';
-    html += `<span class="${cls}">`;
-    open.push(cls);
+    const codes = (m[1] || '0').split(';').map(Number);
+    for (let i = 0; i < codes.length; i++) {
+      const c = codes[i];
+      if (c === 0) state = { bold: false, faint: false, color: null };
+      else if (c === 1) state.bold = true;
+      else if (c === 2) state.faint = true;
+      else if (c === 22) { state.bold = false; state.faint = false; }
+      else if (c === 39) state.color = null;
+      else if (c >= 30 && c <= 37) state.color = xterm256(c - 30);
+      else if (c >= 90 && c <= 97) state.color = xterm256(c - 90 + 8);
+      else if (c === 38 && codes[i + 1] === 5) { state.color = xterm256(codes[i + 2]); i += 2; }
+      else if (c === 38 && codes[i + 1] === 2) { state.color = `rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]})`; i += 4; }
+    }
+    emit();
   }
-  return html + '</span>'.repeat(open.length);
+  return html + '</span>'.repeat(open);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +135,7 @@ const pages = [
 (async () => {
   const data = planData();
   // The plan screenshot is captured fresh so its numbers match the charts.
-  fs.writeFileSync(path.join(src, 'plan-demo.ansi'), execFileSync('go', ['run', '.', 'plan', '-profile', 'profile.example.json'], {
+  fs.writeFileSync(path.join(src, 'plan-demo.ansi'), execFileSync('go', ['run', '.', 'plan', '--profile', 'profile.example.json'], {
     cwd: root, env: { ...process.env, SHOPIFY_STORE: '', FORCE_COLOR: '1' }, stdio: ['ignore', 'pipe', 'ignore'],
   }));
   const ansi = (f) => ansiToHtml(fs.readFileSync(path.join(src, f), 'utf8'));

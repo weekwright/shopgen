@@ -1,4 +1,4 @@
-package main
+package shopgen
 
 import (
 	"os"
@@ -107,18 +107,18 @@ func TestEmailDomainAllowsReserved(t *testing.T) {
 }
 
 func TestExampleProfileLoads(t *testing.T) {
-	p, b, err := LoadProfile("profile.example.json")
+	p, b, err := LoadProfile("../../profile.example.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(b) == 0 || p.Seed != 42 || p.Timezone != "America/Chicago" || p.Customers.Pool != 3000 || !p.ArchiveFulfilled {
 		t.Fatalf("unexpected example profile: %+v", p)
 	}
-	if _, err := os.Stat("examples"); err == nil {
-		entries, _ := os.ReadDir("examples")
+	if _, err := os.Stat("../../examples"); err == nil {
+		entries, _ := os.ReadDir("../../examples")
 		for _, e := range entries {
 			if strings.HasSuffix(e.Name(), ".json") {
-				if _, _, err := LoadProfile("examples/" + e.Name()); err != nil {
+				if _, _, err := LoadProfile("../../examples/" + e.Name()); err != nil {
 					t.Errorf("examples/%s: %v", e.Name(), err)
 				}
 			}
@@ -126,21 +126,12 @@ func TestExampleProfileLoads(t *testing.T) {
 	}
 }
 
-func TestMoneyHelpers(t *testing.T) {
-	for in, want := range map[string]int64{"12.34": 1234, "12.3": 1230, "12": 1200, "0.995": 100, "1.005": 101, "0.01": 1} {
-		got, err := parseMoney(in)
-		if err != nil || got != want {
-			t.Errorf("parseMoney(%q) = %d, %v; want %d", in, got, err, want)
-		}
+func TestFormatMoney(t *testing.T) {
+	if got := FormatMoney(9454, "USD"); got != "$94.54" {
+		t.Errorf("FormatMoney = %s", got)
 	}
-	if _, err := parseMoney("abc"); err == nil {
-		t.Error("parseMoney(abc) should fail")
-	}
-	if got := formatAmount(53605158); got != "536051.58" {
-		t.Errorf("formatAmount = %s", got)
-	}
-	if got := formatMoney(9454, "USD"); got != "$94.54" {
-		t.Errorf("formatMoney = %s", got)
+	if got := FormatMoney(9454, "CHF"); got != "94.54 CHF" {
+		t.Errorf("FormatMoney = %s", got)
 	}
 	if got := groupThousands("536051.58"); got != "536,051.58" {
 		t.Errorf("groupThousands = %s", got)
@@ -161,18 +152,5 @@ func TestSortCatalogNumericAndDedup(t *testing.T) {
 func TestSyntheticCatalogSize(t *testing.T) {
 	if n := len(SyntheticCatalog()); n != 40 {
 		t.Fatalf("synthetic catalog has %d variants, want 40", n)
-	}
-}
-
-func TestNormalizeStore(t *testing.T) {
-	for in, want := range map[string]string{
-		"my-shop":                        "my-shop.myshopify.com",
-		"https://My-Shop.myshopify.com/": "my-shop.myshopify.com",
-		"my-shop.myshopify.com":          "my-shop.myshopify.com",
-		"":                               "",
-	} {
-		if got := NormalizeStore(in); got != want {
-			t.Errorf("NormalizeStore(%q) = %q, want %q", in, got, want)
-		}
 	}
 }

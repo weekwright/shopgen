@@ -1,4 +1,4 @@
-package main
+package shopifytest
 
 import (
 	"encoding/json"
@@ -11,26 +11,41 @@ import (
 	"testing"
 )
 
-// fakeShop is an in-memory Admin API that pattern-matches on query text.
-type fakeShop struct {
+// Server is an in-memory Shopify Admin API for tests. GraphQL requests are
+// dispatched by pattern-matching the query text; it also serves the REST
+// access-scopes endpoint and the OAuth client credentials grant.
+//
+// Configure the exported fields before the first request.
+type Server struct {
+	Name string // shop name; the domain is derived from it
+	Dev  bool   // shop.plan.partnerDevelopment
+	// ThrottleOn returns THROTTLED on this orderCreate call (1-based).
+	ThrottleOn int
+	// DropOn commits this orderCreate call, then drops the connection.
+	DropOn int
+	// RejectCreates answers every orderCreate with a non-retryable userError.
+	RejectCreates bool
+	// Scopes are returned by /admin/oauth/access_scopes.json.
+	Scopes []string
+	// ClientID and ClientSecret enable the client credentials grant; when
+	// set, GraphQL requests must carry a token it issued.
+	ClientID, ClientSecret string
+
 	mu        sync.Mutex
-	name      string
-	dev       bool
 	variants  []map[string]any
-	orders    []*fakeOrder
-	customers []*fakeCustomer
+	orders    []*Order
+	customers []*Customer
 	nextID    int
 
-	creates    int // orderCreate calls received
-	throttleOn int // return THROTTLED on this create (1-based)
-	dropOn     int // commit this create, then drop the connection
-	// rejectCreates answers every create with a non-retryable userError.
-	rejectCreates bool
-	cancels       map[string]int
-	srv           *httptest.Server
+	creates int // orderCreate calls received
+	cancels map[string]int
+	tokens  map[string]bool
+	issued  int
+	srv     *httptest.Server
 }
 
-type fakeOrder struct {
+// Order is an order the fake stores.
+type Order struct {
 	ID, Name    string
 	Tags        []string
 	Cancelled   bool
@@ -40,13 +55,17 @@ type fakeOrder struct {
 	Input       map[string]any
 }
 
-type fakeCustomer struct {
+// Customer is a customer the fake stores.
+type Customer struct {
 	ID, Email string
 	Tags      []string
 }
 
-func newFakeShop(t *testing.T) *fakeShop {
-	f := &fakeShop{name: "Fake Dev Store", dev: true, cancels: map[string]int{}, nextID: 1}
+// New starts a fake dev store with 12 variants and the required scopes. It
+// is closed when the test ends.
+func New(t testing.TB) *Server {
+	f := &Server{Name: "Fake Dev Store", Dev: true, Scopes: []string{"read_products", "write_orders", "write_customers"},
+		cancels: map[string]int{}, tokens: map[string]bool{}, nextID: 1}
 	for i := 0; i < 12; i++ {
 		f.variants = append(f.variants, map[string]any{
 			"id":      fmt.Sprintf("gid://shopify/ProductVariant/%d", 9000+i*7),
@@ -60,9 +79,27 @@ func newFakeShop(t *testing.T) *fakeShop {
 	return f
 }
 
-func (f *fakeShop) URL() string { return f.srv.URL + "/admin/api/2026-10/graphql.json" }
+// URL is the GraphQL endpoint.
+func (f *Server) URL() string { return f.srv.URL + "/admin/api/2026-10/graphql.json" }
 
-func (f *fakeShop) id(kind string) string {
+// BaseURL is the server root, for the REST and OAuth endpoints.
+func (f *Server) BaseURL() string { return f.srv.URL }
+
+// ExpireTokens invalidates every issued access token.
+func (f *Server) ExpireTokens() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tokens = map[string]bool{}
+}
+
+// TokensIssued counts client credentials grants served.
+func (f *Server) TokensIssued() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.issued
+}
+
+func (f *Server) id(kind string) string {
 	f.nextID++
 	return fmt.Sprintf("gid://shopify/%s/%d", kind, f.nextID)
 }
@@ -76,7 +113,8 @@ func userErr(msg string) []map[string]any {
 	return []map[string]any{{"field": []string{"order"}, "message": msg}}
 }
 
-func hasTag(tags []string, tag string) bool {
+// HasTag reports whether tags contains tag, ignoring case as Shopify does.
+func HasTag(tags []string, tag string) bool {
 	for _, t := range tags {
 		if strings.EqualFold(t, tag) {
 			return true
@@ -106,7 +144,31 @@ func page[T any](items []T, cursor any, size int) ([]T, map[string]any) {
 	return items[start:end], pi
 }
 
-func (f *fakeShop) serve(w http.ResponseWriter, r *http.Request) {
+func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/admin/oauth/access_token":
+		f.serveToken(w, r)
+		return
+	case "/admin/oauth/access_scopes.json":
+		f.mu.Lock()
+		scopes := make([]map[string]string, len(f.Scopes))
+		for i, sc := range f.Scopes {
+			scopes[i] = map[string]string{"handle": sc}
+		}
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_scopes": scopes})
+		return
+	}
+	if f.ClientID != "" {
+		f.mu.Lock()
+		ok := f.tokens[r.Header.Get("X-Shopify-Access-Token")]
+		f.mu.Unlock()
+		if !ok {
+			http.Error(w, `{"errors":"[API] Invalid API key or access token (unrecognized login or wrong password)"}`, http.StatusUnauthorized)
+			return
+		}
+	}
 	if r.Header.Get("Content-Type") != "application/json" {
 		http.Error(w, "bad content type", 400)
 		return
@@ -127,18 +189,18 @@ func (f *fakeShop) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(q, "orderCreate("):
 		f.creates++
 		n := f.creates
-		if n == f.throttleOn {
+		if n == f.ThrottleOn {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{"errors":[{"message":"Throttled","extensions":{"code":"THROTTLED"}}],"extensions":{"cost":{"requestedQueryCost":10,"throttleStatus":{"maximumAvailable":1000,"currentlyAvailable":5,"restoreRate":50}}}}`)
 			return
 		}
-		if f.rejectCreates {
+		if f.RejectCreates {
 			reply(w, map[string]any{"orderCreate": map[string]any{"order": nil, "userErrors": userErr("Variant is not available")}})
 			return
 		}
 		order, _ := v["order"].(map[string]any)
 		created, errs := f.createOrder(order)
-		if n == f.dropOn && created != nil {
+		if n == f.DropOn && created != nil {
 			hj, ok := w.(http.Hijacker)
 			if !ok {
 				panic("no hijacker")
@@ -203,7 +265,7 @@ func (f *fakeShop) serve(w http.ResponseWriter, r *http.Request) {
 		tag := tagFromQuery(v["query"].(string))
 		var match []map[string]any
 		for _, o := range f.orders {
-			if hasTag(o.Tags, tag) {
+			if HasTag(o.Tags, tag) {
 				var cancelledAt any
 				if o.Cancelled {
 					cancelledAt = "2026-10-14T00:00:00Z"
@@ -218,7 +280,7 @@ func (f *fakeShop) serve(w http.ResponseWriter, r *http.Request) {
 		tag := tagFromQuery(v["query"].(string))
 		var match []map[string]any
 		for _, c := range f.customers {
-			if hasTag(c.Tags, tag) {
+			if HasTag(c.Tags, tag) {
 				match = append(match, map[string]any{"id": c.ID, "email": c.Email})
 			}
 		}
@@ -227,8 +289,8 @@ func (f *fakeShop) serve(w http.ResponseWriter, r *http.Request) {
 
 	case strings.Contains(q, "shop {"):
 		reply(w, map[string]any{"shop": map[string]any{
-			"name": f.name, "myshopifyDomain": strings.ToLower(strings.ReplaceAll(f.name, " ", "-")) + ".myshopify.com", "currencyCode": "USD",
-			"plan": map[string]any{"partnerDevelopment": f.dev},
+			"name": f.Name, "myshopifyDomain": strings.ToLower(strings.ReplaceAll(f.Name, " ", "-")) + ".myshopify.com", "currencyCode": "USD",
+			"plan": map[string]any{"partnerDevelopment": f.Dev},
 		}})
 
 	default:
@@ -236,7 +298,26 @@ func (f *fakeShop) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (f *fakeShop) createOrder(in map[string]any) (*fakeOrder, []map[string]any) {
+func (f *Server) serveToken(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil || r.PostForm.Get("grant_type") != "client_credentials" {
+		http.Error(w, `{"error":"unsupported_grant_type"}`, http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r.PostForm.Get("client_id") != f.ClientID || r.PostForm.Get("client_secret") != f.ClientSecret || f.ClientID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"error":"invalid_client","error_description":"Client authentication failed"}`)
+		return
+	}
+	f.issued++
+	tok := fmt.Sprintf("shpat_fake_%d", f.issued)
+	f.tokens[tok] = true
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": tok, "scope": strings.Join(f.Scopes, ","), "expires_in": 86399})
+}
+
+func (f *Server) createOrder(in map[string]any) (*Order, []map[string]any) {
 	if in == nil {
 		return nil, userErr("order is required")
 	}
@@ -262,22 +343,22 @@ func (f *fakeShop) createOrder(in map[string]any) (*fakeOrder, []map[string]any)
 			custTags = append(custTags, t.(string))
 		}
 	}
-	var c *fakeCustomer
+	var c *Customer
 	for _, existing := range f.customers {
 		if existing.Email == email {
 			c = existing
 		}
 	}
 	if c == nil {
-		c = &fakeCustomer{ID: f.id("Customer"), Email: email}
+		c = &Customer{ID: f.id("Customer"), Email: email}
 		f.customers = append(f.customers, c)
 	}
 	for _, t := range custTags {
-		if !hasTag(c.Tags, t) {
+		if !HasTag(c.Tags, t) {
 			c.Tags = append(c.Tags, t)
 		}
 	}
-	o := &fakeOrder{ID: f.id("Order"), CustomerID: c.ID, Input: in}
+	o := &Order{ID: f.id("Order"), CustomerID: c.ID, Input: in}
 	o.Name = fmt.Sprintf("#%d", 1000+len(f.orders)+1)
 	for _, t := range rawTags {
 		o.Tags = append(o.Tags, t.(string))
@@ -288,7 +369,7 @@ func (f *fakeShop) createOrder(in map[string]any) (*fakeOrder, []map[string]any)
 	return o, nil
 }
 
-func (f *fakeShop) findOrder(id any) *fakeOrder {
+func (f *Server) findOrder(id any) *Order {
 	for _, o := range f.orders {
 		if o.ID == id {
 			return o
@@ -297,7 +378,7 @@ func (f *fakeShop) findOrder(id any) *fakeOrder {
 	return nil
 }
 
-func (f *fakeShop) removeOrder(id string) {
+func (f *Server) removeOrder(id string) {
 	for i, o := range f.orders {
 		if o.ID == id {
 			f.orders = append(f.orders[:i], f.orders[i+1:]...)
@@ -306,8 +387,8 @@ func (f *fakeShop) removeOrder(id string) {
 	}
 }
 
-// snapshot returns copies safe to inspect outside the lock.
-func (f *fakeShop) snapshot() (orders []fakeOrder, customers []fakeCustomer, cancels map[string]int, creates int) {
+// Snapshot returns copies of the store's state, safe to inspect.
+func (f *Server) Snapshot() (orders []Order, customers []Customer, cancels map[string]int, creates int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, o := range f.orders {

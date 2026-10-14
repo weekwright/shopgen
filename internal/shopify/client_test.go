@@ -1,13 +1,10 @@
-package main
+package shopify
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -32,7 +29,7 @@ func scripted(t *testing.T, steps ...func(w http.ResponseWriter, r *http.Request
 	}))
 	t.Cleanup(srv.Close)
 	var sleeps []time.Duration
-	c := NewClient(srv.URL, "tok")
+	c := NewClient(srv.URL, StaticToken("tok"))
 	c.Sleep = func(ctx context.Context, d time.Duration) error { sleeps = append(sleeps, d); return nil }
 	return c, &n, &sleeps
 }
@@ -156,48 +153,7 @@ func TestClientDecodesData(t *testing.T) {
 }
 
 func TestIsMutation(t *testing.T) {
-	if !isMutation("\n  mutation X {}") || isMutation("query { mutationLog }") {
+	if !IsMutation("\n  mutation X {}") || IsMutation("query { mutationLog }") {
 		t.Fatal("isMutation")
-	}
-}
-
-func TestCLIExitCodes(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := realMain(nil, &out, &errOut); code != 2 {
-		t.Fatalf("no args: %d", code)
-	}
-	if code := realMain([]string{"bogus"}, &out, &errOut); code != 2 {
-		t.Fatalf("unknown command: %d", code)
-	}
-	if code := realMain([]string{"plan", "-nope"}, &out, &errOut); code != 2 {
-		t.Fatalf("bad flag: %d", code)
-	}
-	if code := realMain([]string{"plan", "-profile", "profile.example.json", "-opm", "0"}, &out, &errOut); code != 2 {
-		t.Fatalf("-opm 0: %d", code)
-	}
-	if code := realMain([]string{"purge", "-endpoint", "http://127.0.0.1:1"}, &out, &errOut); code != 2 {
-		t.Fatalf("purge without -run/-all: %d", code)
-	}
-	if code := realMain([]string{"plan", "-profile", filepath.Join(t.TempDir(), "missing.json")}, &out, &errOut); code != 1 {
-		t.Fatalf("missing profile: %d", code)
-	}
-	if code := realMain([]string{"version"}, &out, &errOut); code != 0 || !strings.Contains(out.String(), "shopgen") {
-		t.Fatalf("version: %d %q", code, out.String())
-	}
-}
-
-func TestCLIPlanWritesSummaryAndJSONL(t *testing.T) {
-	t.Setenv("SHOPIFY_STORE", "")
-	var out, errOut bytes.Buffer
-	path := filepath.Join(t.TempDir(), "plan.jsonl")
-	if code := realMain([]string{"plan", "-profile", "profile.example.json", "-out", path}, &out, &errOut); code != 0 {
-		t.Fatalf("plan: %d\n%s", code, errOut.String())
-	}
-	if !strings.HasPrefix(out.String(), "window      2026-07-15 → 2026-10-13 (91 days, America/Chicago)") {
-		t.Fatalf("summary:\n%s", out.String())
-	}
-	b, err := os.ReadFile(path)
-	if err != nil || bytes.Count(b, []byte("\n")) < 5000 {
-		t.Fatalf("plan.jsonl: %v, %d lines", err, bytes.Count(b, []byte("\n")))
 	}
 }
